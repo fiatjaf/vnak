@@ -1,0 +1,38 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+    - uses: jurplel/install-qt-action@v4
+    - run: |
+        sudo apt-get update
+        sudo apt-get -y install build-essential libglu1-mesa-dev libpulse-dev libglib2.0-dev
+        go get -v github.com/therecipe/qt && go install -v -tags=no_env github.com/therecipe/qt/cmd/... && go mod vendor && rm -rf vendor/github.com/therecipe/env_linux_amd64_513 && git clone https://github.com/therecipe/env_linux_amd64_513.git vendor/github.com/therecipe/env_linux_amd64_513 && $(go env GOPATH)/bin/qtsetup
+    - run: qtdeploy build desktop
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: mingw-w64-x86_64-qt-creator mingw-w64-x86_64-qt5-static
+    - shell: msys2 {0}
+      run: |
+        export QT_MSYS2=true
+        export QT_MSYS2_ARCH=amd64
+        export QT_MSYS2_STATIC=true
+        git clone https://github.com/therecipe/examples.git && cd ./examples && go install -v -tags=no_env github.com/therecipe/qt/cmd/... && go mod vendor && git clone https://github.com/therecipe/env_windows_amd64_513.git vendor/github.com/therecipe/env_windows_amd64_513 && for /f %v in ('go env GOPATH') do %v\bin\qtdeploy test desktop ./basic/widgets
+    - shell: msys2 {0}
+      run: qtdeploy build desktop
