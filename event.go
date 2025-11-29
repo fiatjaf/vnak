@@ -10,10 +10,14 @@ import (
 	"github.com/mappu/miqt/qt6/mainthread"
 )
 
-var event struct {
+var event = &eventVars{}
+
+type eventVars struct {
 	kindSpin           *qt.QSpinBox
 	kindNameLabel      *qt.QLabel
 	tagRows            [][]*qt.QLineEdit
+	tagRowHBoxes       []*qt.QHBoxLayout
+	tagsLayout         *qt.QVBoxLayout
 	contentEdit        *qt.QTextEdit
 	createdAtEdit      *qt.QDateTimeEdit
 	outputEdit         *qt.QTextEdit
@@ -41,7 +45,7 @@ func setupEventTab() *qt.QWidget {
 	event.kindSpin.SetMaximum(1<<16 - 1)
 	kindHBox.AddWidget(event.kindSpin.QWidget)
 	event.kindSpin.OnValueChanged(func(int) {
-		updateEvent()
+		event.updateEvent()
 	})
 	event.kindNameLabel = qt.NewQLabel2()
 	kindHBox.AddWidget(event.kindNameLabel.QWidget)
@@ -52,7 +56,7 @@ func setupEventTab() *qt.QWidget {
 	layout.AddWidget(contentLabel.QWidget)
 	event.contentEdit = qt.NewQTextEdit(tab)
 	layout.AddWidget(event.contentEdit.QWidget)
-	event.contentEdit.OnTextChanged(updateEvent)
+	event.contentEdit.OnTextChanged(event.updateEvent)
 
 	// created_at input
 	createdAtLabel := qt.NewQLabel2()
@@ -62,23 +66,23 @@ func setupEventTab() *qt.QWidget {
 	event.createdAtEdit.SetDateTime(qt.QDateTime_CurrentDateTime())
 	layout.AddWidget(event.createdAtEdit.QWidget)
 	event.createdAtEdit.OnDateTimeChanged(func(*qt.QDateTime) {
-		updateEvent()
+		event.updateEvent()
 	})
 
 	// tags input
 	tagsLabel := qt.NewQLabel2()
 	tagsLabel.SetText("tags:")
 	layout.AddWidget(tagsLabel.QWidget)
-	tagsLayout := qt.NewQVBoxLayout2()
-	tagRowHBoxes := make([]*qt.QHBoxLayout, 0, 2)
+	event.tagsLayout = qt.NewQVBoxLayout2()
+	event.tagRowHBoxes = make([]*qt.QHBoxLayout, 0, 2)
 	event.tagRows = make([][]*qt.QLineEdit, 0, 2)
-	layout.AddLayout(tagsLayout.QLayout)
+	layout.AddLayout(event.tagsLayout.QLayout)
 
 	var addTagRow func()
 	addTagRow = func() {
 		hbox := qt.NewQHBoxLayout2()
-		tagRowHBoxes = append(tagRowHBoxes, hbox)
-		tagsLayout.AddLayout(hbox.QLayout)
+		event.tagRowHBoxes = append(event.tagRowHBoxes, hbox)
+		event.tagsLayout.AddLayout(hbox.QLayout)
 		tagItems := []*qt.QLineEdit{}
 		y := len(event.tagRows)
 		event.tagRows = append(event.tagRows, tagItems)
@@ -115,16 +119,16 @@ func setupEventTab() *qt.QWidget {
 					itemIsFilled := func(edit *qt.QLineEdit) bool { return strings.TrimSpace(edit.Text()) != "" }
 					if nRows >= 2 && !slices.ContainsFunc(event.tagRows[nRows-1], itemIsFilled) && !slices.ContainsFunc(event.tagRows[nRows-2], itemIsFilled) {
 						// remove the last row if the last 2 are empty
-						tagsLayout.RemoveItem(tagRowHBoxes[nRows-1].QLayoutItem)
+						event.tagsLayout.RemoveItem(event.tagRowHBoxes[nRows-1].QLayoutItem)
+						event.tagRowHBoxes[nRows-1].DeleteLater()
 						for _, tagItem := range event.tagRows[nRows-1] {
 							tagItem.DeleteLater()
 						}
-						tagRowHBoxes[nRows-1].DeleteLater()
 						event.tagRows = event.tagRows[0 : nRows-1]
-						tagRowHBoxes = tagRowHBoxes[0 : nRows-1]
+						event.tagRowHBoxes = event.tagRowHBoxes[0 : nRows-1]
 					}
 				}
-				updateEvent()
+				event.updateEvent()
 			})
 		}
 		addItem()
@@ -137,9 +141,17 @@ func setupEventTab() *qt.QWidget {
 	outputLabel := qt.NewQLabel2()
 	outputLabel.SetText("event:")
 	layout.AddWidget(outputLabel.QWidget)
+	outputHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(outputHBox.QLayout)
 	event.outputEdit = qt.NewQTextEdit(tab)
 	event.outputEdit.SetReadOnly(true)
-	layout.AddWidget(event.outputEdit.QWidget)
+	outputHBox.AddWidget(event.outputEdit.QWidget)
+	copyButton := qt.NewQPushButton5("➡️", tab)
+	outputHBox.AddWidget(copyButton.QWidget)
+	copyButton.OnClicked(func() {
+		tabWidget.SetCurrentIndex(tabIndexes.paste)
+		paste.inputEdit.SetPlainText(event.outputEdit.ToPlainText())
+	})
 
 	// send button
 	buttonHBox := qt.NewQHBoxLayout2()
@@ -241,7 +253,7 @@ func setupEventTab() *qt.QWidget {
 	return tab
 }
 
-func updateEvent() {
+func (event *eventVars) updateEvent() {
 	kind := nostr.Kind(event.kindSpin.Value())
 	kindName := kind.Name()
 	if kindName != "unknown" {
@@ -308,4 +320,42 @@ func updateEvent() {
 	}
 
 	finalize()
+}
+
+func (event *eventVars) populate(evt nostr.Event) {
+	// populate event tab
+	event.kindSpin.SetValue(int(evt.Kind))
+	event.contentEdit.SetPlainText(evt.Content)
+
+	// created_at
+	dt := qt.NewQDateTime()
+	dt.SetMSecsSinceEpoch(int64(evt.CreatedAt) * 1000)
+	event.createdAtEdit.SetDateTime(dt)
+
+	// tags
+	// clear all tag items and rows
+	for _, hbox := range event.tagRowHBoxes {
+		for _, item := range event.tagRows[len(event.tagRows)-1] {
+			item.DeleteLater()
+		}
+		hbox.DeleteLater()
+	}
+	event.tagRows = event.tagRows[:0]
+	event.tagRowHBoxes = event.tagRowHBoxes[:0]
+	// add tag rows and items from evt
+	for _, tag := range evt.Tags {
+		hbox := qt.NewQHBoxLayout2()
+		event.tagRowHBoxes = append(event.tagRowHBoxes, hbox)
+		event.tagsLayout.AddLayout(hbox.QLayout)
+		tagItems := []*qt.QLineEdit{}
+		for _, value := range tag {
+			edit := qt.NewQLineEdit(nil)
+			edit.SetText(value)
+			hbox.AddWidget(edit.QWidget)
+			tagItems = append(tagItems, edit)
+		}
+		event.tagRows = append(event.tagRows, tagItems)
+	}
+
+	event.updateEvent()
 }

@@ -24,7 +24,7 @@ type pasteVars struct {
 	nip05ctxAbort  error
 }
 
-var paste = pasteVars{
+var paste = &pasteVars{
 	nip05ctxAbort: errors.New("aborted"),
 }
 
@@ -39,7 +39,7 @@ func setupPasteTab() *qt.QWidget {
 	layout.AddWidget(inputLabel.QWidget)
 	paste.inputEdit = qt.NewQTextEdit(tab)
 	layout.AddWidget(paste.inputEdit.QWidget)
-	paste.inputEdit.OnTextChanged(updatePaste)
+	paste.inputEdit.OnTextChanged(paste.updatePaste)
 
 	// output
 	paste.outputVBox = qt.NewQVBoxLayout2()
@@ -61,7 +61,7 @@ func deleteLayoutRecursively(layout *qt.QLayout) {
 	layout.DeleteLater()
 }
 
-func updatePaste() {
+func (paste *pasteVars) updatePaste() {
 	// clear previous output
 	for paste.outputVBox.Count() > 0 {
 		item := paste.outputVBox.ItemAt(0)
@@ -73,6 +73,7 @@ func updatePaste() {
 		paste.outputVBox.RemoveItem(item)
 	}
 
+	// process current
 	text := strings.TrimSpace(paste.inputEdit.ToPlainText())
 	if text == "" {
 		return
@@ -96,7 +97,7 @@ func updatePaste() {
 
 	// try JSON event
 	var event nostr.Event
-	if err := json.Unmarshal([]byte(text), &event); err == nil {
+	if err := json.Unmarshal([]byte(text), &event); err == nil && (event.ID != nostr.ZeroID || event.Kind != 0 || event.CreatedAt != 0 || event.Content != "" || event.Tags != nil || event.PubKey != nostr.ZeroPK) {
 		paste.displayEventButton(event)
 		return
 	}
@@ -323,83 +324,21 @@ func (p *pasteVars) displayNip05(identifier string) {
 }
 
 func (p *pasteVars) displayEventButton(evt nostr.Event) {
-	button := qt.NewQPushButton5("event", window.QWidget)
+	button := qt.NewQPushButton5("event ➡️", window.QWidget)
 	button.OnClicked(func() {
-		// populate event tab
-		event.kindSpin.SetValue(int(evt.Kind))
-		event.contentEdit.SetPlainText(evt.Content)
-		// created_at
-		dt := qt.NewQDateTime()
-		dt.SetMSecsSinceEpoch(int64(evt.CreatedAt) * 1000)
-		event.createdAtEdit.SetDateTime(dt)
-		// tags
-		// clear existing
-		for len(event.tagRows) > 1 {
-			// remove last row
-			lastRow := event.tagRows[len(event.tagRows)-1]
-			for _, edit := range lastRow {
-				edit.DeleteLater()
-			}
-			event.tagRows = event.tagRows[:len(event.tagRows)-1]
-		}
-		// set tags
-		for i, tag := range evt.Tags {
-			if i >= len(event.tagRows) {
-				// add more rows if needed
-				// but for simplicity, just set what we can
-				break
-			}
-			for j, value := range tag {
-				if j >= len(event.tagRows[i]) {
-					break
-				}
-				event.tagRows[i][j].SetText(value)
-			}
-		}
+		event.populate(evt)
 		// switch to event tab
-		tabWidget.SetCurrentIndex(0) // assuming event is first
+		tabWidget.SetCurrentIndex(tabIndexes.event)
 	})
 	p.outputVBox.AddWidget(button.QWidget)
 }
 
-func (p *pasteVars) displayFilterButton(filt nostr.Filter) {
-	button := qt.NewQPushButton5("filter", window.QWidget)
+func (p *pasteVars) displayFilterButton(filter nostr.Filter) {
+	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
 	button.OnClicked(func() {
-		// populate req tab
-		// authors
-		for i, author := range filt.Authors {
-			if i < len(req.authorsEdits) {
-				req.authorsEdits[i].SetText(nip19.EncodeNpub(author))
-			}
-		}
-		// ids
-		for i, id := range filt.IDs {
-			if i < len(req.idsEdits) {
-				req.idsEdits[i].SetText(id.String())
-			}
-		}
-		// kinds
-		for i, kind := range filt.Kinds {
-			if i < len(req.kindsEdits) {
-				req.kindsEdits[i].SetText(fmt.Sprintf("%d", kind))
-			}
-		}
-		// since
-		if filt.Since != 0 {
-			dt := qt.NewQDateTime()
-			dt.SetMSecsSinceEpoch(int64(filt.Since) * 1000)
-			req.sinceEdit.SetDateTime(dt)
-		}
-		// until
-		if filt.Until != 0 {
-			dt := qt.NewQDateTime()
-			dt.SetMSecsSinceEpoch(int64(filt.Until) * 1000)
-			req.untilEdit.SetDateTime(dt)
-		}
-		// limit
-		req.limitSpin.SetValue(filt.Limit)
+		req.populate(filter)
 		// switch to req tab
-		tabWidget.SetCurrentIndex(1) // assuming req is second
+		tabWidget.SetCurrentIndex(tabIndexes.req)
 	})
 	p.outputVBox.AddWidget(button.QWidget)
 }

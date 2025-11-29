@@ -23,12 +23,19 @@ var (
 
 	currentSec   nostr.SecretKey
 	currentKeyer nostr.Keyer
-	statusLabel  *qt.QLabel
-	debounced    = debouncer.New(950 * time.Millisecond)
-	sys          = sdk.NewSystem()
-	ctx          = context.Background()
-	debug        = flag.Bool("debug", false, "enable debug mode")
-	initialTab   = flag.String("tab", "paste", "tab to open initially")
+	tabIndexes   struct {
+		event int
+		req   int
+		paste int
+	}
+	statusLabel *qt.QLabel
+
+	debounced = debouncer.New(950 * time.Millisecond)
+	sys       = sdk.NewSystem()
+	ctx       = context.Background()
+
+	debug      = flag.Bool("debug", false, "enable debug mode")
+	initialTab = flag.String("tab", "paste", "tab to open initially")
 )
 
 func main() {
@@ -114,7 +121,7 @@ func main() {
 		currentSec = sk
 		currentKeyer = keyer
 		statusLabel.SetText("")
-		updateEvent()
+		event.updateEvent()
 		return
 
 	empty:
@@ -139,18 +146,23 @@ func main() {
 	pasteTab := setupPasteTab()
 
 	tabWidget.AddTab(eventTab, "event")
+	tabIndexes.event = 0
+
 	tabWidget.AddTab(reqTab, "req")
+	tabIndexes.req = 1
+
 	tabWidget.AddTab(pasteTab, "paste")
+	tabIndexes.paste = 2
 
 	switch *initialTab {
 	case "event":
-		tabWidget.SetCurrentIndex(0)
+		tabWidget.SetCurrentIndex(tabIndexes.event)
 	case "req":
-		tabWidget.SetCurrentIndex(1)
+		tabWidget.SetCurrentIndex(tabIndexes.req)
 	case "paste":
-		tabWidget.SetCurrentIndex(2)
+		tabWidget.SetCurrentIndex(tabIndexes.paste)
 	default:
-		tabWidget.SetCurrentIndex(2)
+		tabWidget.SetCurrentIndex(0)
 	}
 
 	mainLayout.AddWidget(tabWidget.QWidget)
@@ -159,9 +171,9 @@ func main() {
 	mainLayout.AddWidget(statusLabel.QWidget)
 
 	// initial render
-	updateEvent()
-	updateReq()
-	updatePaste()
+	event.updateEvent()
+	req.updateReq()
+	paste.updatePaste()
 
 	window.Show()
 	qt.QApplication_Exec()
