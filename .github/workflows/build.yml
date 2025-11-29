@@ -1,9 +1,9 @@
-name: Build
+name: build
 
 on: [push]
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -11,25 +11,39 @@ jobs:
       with:
         go-version: '1.25'
     - run: |
-        sudo apt-get update
-        sudo apt-get -y install build-essential libglu1-mesa-dev libpulse-dev libglib2.0-dev pkg-config qtbase5-dev
+         sudo apt-get update
+         sudo apt-get -y install build-essential libglu1-mesa-dev libpulse-dev libglib2.0-dev pkg-config qt6-base-dev
     - run: go build -ldflags '-s -w'
+    - name: Upload Linux binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vnak-linux-amd64
+        path: vnak
   build-windows:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v4
       with:
         go-version: '1.25'
-    - uses: msys2/setup-msys2@v2
+    - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
+    - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
+    - name: Upload Windows binary
+      uses: actions/upload-artifact@v4
       with:
-        msystem: MINGW64
-        update: true
-        install: mingw-w64-x86_64-qt5-static
-    - shell: msys2 {0}
-      run: |
-        export PKG_CONFIG_PATH=/ucrt64/qt5-static/lib/pkgconfig
-        export CGO_LDFLAGS='-LC:/msys64/ucrt64/qt5-static/share/qt5/plugins/platforms -lqwindows -lQt5FontDatabaseSupport -lQt5EventDispatcherSupport -lQt5ThemeSupport -lQt5PlatformCompositorSupport -lQt5AccessibilitySupport -lQt5WindowsUIAutomationSupport -lwtsapi32 -LC:/msys64/ucrt64/qt5-static/share/qt5/plugins/styles -lqwindowsvistastyle -lQt5VulkanSupport -lqtfreetype -static -static-libgcc -static-libstdc++'
-        cp -vn /ucrt64/lib/libzstd.a /ucrt64/qt5-static/lib/libzstd
-        cp -vn /ucrt64/lib/libz.a /ucrt64/qt5-static/lib/libz
-        go build -ldflags "-s -w -H windowsgui" --tags=windowsqtstatic
+        name: vnak-windows-amd64
+        path: vnak.exe
+  build-mac:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v4
+      with:
+        go-version: '1.25'
+    - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
+    - run: ~/go/bin/miqt-docker osxcross -build
+    - name: Upload macOS binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: vnak-macos-amd64
+        path: vnak
