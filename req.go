@@ -6,45 +6,45 @@ import (
 	"strings"
 
 	"fiatjaf.com/nostr"
-	"github.com/therecipe/qt/core"
-	"github.com/therecipe/qt/widgets"
+	qt "github.com/mappu/miqt/qt6"
 )
 
 type reqVars struct {
-	authorsEdits []*widgets.QLineEdit
-	idsEdits     []*widgets.QLineEdit
-	kindsEdits   []*widgets.QLineEdit
-	kindsLabels  []*widgets.QLabel
-	relaysEdits  []*widgets.QLineEdit
-	sinceEdit    *widgets.QDateTimeEdit
-	untilEdit    *widgets.QDateTimeEdit
-	limitSpin    *widgets.QSpinBox
+	authorsEdits []*qt.QLineEdit
+	idsEdits     []*qt.QLineEdit
+	kindsEdits   []*qt.QLineEdit
+	kindsLabels  []*qt.QLabel
+	relaysEdits  []*qt.QLineEdit
+	sinceEdit    *qt.QDateTimeEdit
+	untilEdit    *qt.QDateTimeEdit
+	limitSpin    *qt.QSpinBox
 
 	filter nostr.Filter
 
-	outputEdit  *widgets.QTextEdit
-	resultsEdit *widgets.QTextEdit
+	outputEdit  *qt.QTextEdit
+	resultsEdit *qt.QTextEdit
 }
 
 var req = reqVars{}
 
-func setupReqTab() *widgets.QWidget {
-	tab := widgets.NewQWidget(nil, 0)
-	layout := widgets.NewQVBoxLayout()
-	tab.SetLayout(layout)
+func setupReqTab() *qt.QWidget {
+	tab := qt.NewQWidget(window.QWidget)
+	layout := qt.NewQVBoxLayout2()
+	tab.SetLayout(layout.QLayout)
 
 	// authors
-	authorsLabel := widgets.NewQLabel2("authors:", nil, 0)
-	layout.AddWidget(authorsLabel, 0, 0)
-	authorsVBox := widgets.NewQVBoxLayout()
-	layout.AddLayout(authorsVBox, 0)
-	req.authorsEdits = []*widgets.QLineEdit{}
+	authorsLabel := qt.NewQLabel2()
+	authorsLabel.SetText("authors:")
+	layout.AddWidget(authorsLabel.QWidget)
+	authorsVBox := qt.NewQVBoxLayout2()
+	layout.AddLayout(authorsVBox.QLayout)
+	req.authorsEdits = []*qt.QLineEdit{}
 	var addAuthorEdit func()
 	addAuthorEdit = func() {
-		edit := widgets.NewQLineEdit(nil)
+		edit := qt.NewQLineEdit(tab)
 		req.authorsEdits = append(req.authorsEdits, edit)
-		authorsVBox.AddWidget(edit, 0, 0)
-		edit.ConnectTextChanged(func(text string) {
+		authorsVBox.AddWidget(edit.QWidget)
+		edit.OnTextChanged(func(text string) {
 			if strings.TrimSpace(text) != "" {
 				if edit == req.authorsEdits[len(req.authorsEdits)-1] {
 					addAuthorEdit()
@@ -52,7 +52,7 @@ func setupReqTab() *widgets.QWidget {
 			} else {
 				n := len(req.authorsEdits)
 				if n >= 2 && strings.TrimSpace(req.authorsEdits[n-1].Text()) == "" && strings.TrimSpace(req.authorsEdits[n-2].Text()) == "" {
-					authorsVBox.Layout().RemoveWidget(req.authorsEdits[n-1])
+					authorsVBox.RemoveWidget(req.authorsEdits[n-1].QWidget)
 					req.authorsEdits[n-1].DeleteLater()
 					req.authorsEdits = req.authorsEdits[0 : n-1]
 				}
@@ -63,17 +63,18 @@ func setupReqTab() *widgets.QWidget {
 	addAuthorEdit()
 
 	// ids
-	idsLabel := widgets.NewQLabel2("ids:", nil, 0)
-	layout.AddWidget(idsLabel, 0, 0)
-	idsVBox := widgets.NewQVBoxLayout()
-	layout.AddLayout(idsVBox, 0)
-	req.idsEdits = []*widgets.QLineEdit{}
+	idsLabel := qt.NewQLabel2()
+	idsLabel.SetText("ids:")
+	layout.AddWidget(idsLabel.QWidget)
+	idsVBox := qt.NewQVBoxLayout2()
+	layout.AddLayout(idsVBox.QLayout)
+	req.idsEdits = []*qt.QLineEdit{}
 	var addIdEdit func()
 	addIdEdit = func() {
-		edit := widgets.NewQLineEdit(nil)
+		edit := qt.NewQLineEdit(tab)
 		req.idsEdits = append(req.idsEdits, edit)
-		idsVBox.AddWidget(edit, 0, 0)
-		edit.ConnectTextChanged(func(text string) {
+		idsVBox.AddWidget(edit.QWidget)
+		edit.OnTextChanged(func(text string) {
 			if strings.TrimSpace(text) != "" {
 				if edit == req.idsEdits[len(req.idsEdits)-1] {
 					addIdEdit()
@@ -81,7 +82,7 @@ func setupReqTab() *widgets.QWidget {
 			} else {
 				n := len(req.idsEdits)
 				if n >= 2 && strings.TrimSpace(req.idsEdits[n-1].Text()) == "" && strings.TrimSpace(req.idsEdits[n-2].Text()) == "" {
-					idsVBox.Layout().RemoveWidget(req.idsEdits[n-1])
+					idsVBox.RemoveWidget(req.idsEdits[n-1].QWidget)
 					req.idsEdits[n-1].DeleteLater()
 					req.idsEdits = req.idsEdits[0 : n-1]
 				}
@@ -92,23 +93,24 @@ func setupReqTab() *widgets.QWidget {
 	addIdEdit()
 
 	// kinds
-	kindsLabel := widgets.NewQLabel2("kinds:", nil, 0)
-	layout.AddWidget(kindsLabel, 0, 0)
-	kindsVBox := widgets.NewQVBoxLayout()
-	layout.AddLayout(kindsVBox, 0)
-	req.kindsEdits = []*widgets.QLineEdit{}
-	req.kindsLabels = []*widgets.QLabel{}
+	kindsLabel := qt.NewQLabel2()
+	kindsLabel.SetText("kinds:")
+	layout.AddWidget(kindsLabel.QWidget)
+	kindsVBox := qt.NewQVBoxLayout2()
+	layout.AddLayout(kindsVBox.QLayout)
+	req.kindsEdits = []*qt.QLineEdit{}
+	req.kindsLabels = []*qt.QLabel{}
 	var addKindEdit func()
 	addKindEdit = func() {
-		hbox := widgets.NewQHBoxLayout()
-		kindsVBox.AddLayout(hbox, 0)
-		edit := widgets.NewQLineEdit(nil)
+		hbox := qt.NewQHBoxLayout2()
+		kindsVBox.AddLayout(hbox.QLayout)
+		edit := qt.NewQLineEdit(tab)
 		req.kindsEdits = append(req.kindsEdits, edit)
-		hbox.AddWidget(edit, 0, 0)
-		label := widgets.NewQLabel2("", nil, 0)
+		hbox.AddWidget(edit.QWidget)
+		label := qt.NewQLabel2()
 		req.kindsLabels = append(req.kindsLabels, label)
-		hbox.AddWidget(label, 0, 0)
-		edit.ConnectTextChanged(func(text string) {
+		hbox.AddWidget(label.QWidget)
+		edit.OnTextChanged(func(text string) {
 			if strings.TrimSpace(text) != "" {
 				if edit == req.kindsEdits[len(req.kindsEdits)-1] {
 					addKindEdit()
@@ -119,8 +121,8 @@ func setupReqTab() *widgets.QWidget {
 					lastItem := kindsVBox.ItemAt(kindsVBox.Count() - 1)
 					kindsVBox.RemoveItem(lastItem)
 					lastHBox := lastItem.Layout()
-					lastHBox.RemoveWidget(req.kindsEdits[n-1])
-					lastHBox.RemoveWidget(req.kindsLabels[n-1])
+					lastHBox.RemoveWidget(req.kindsEdits[n-1].QWidget)
+					lastHBox.RemoveWidget(req.kindsLabels[n-1].QWidget)
 					req.kindsEdits[n-1].DeleteLater()
 					req.kindsLabels[n-1].DeleteLater()
 					lastHBox.DeleteLater()
@@ -134,69 +136,74 @@ func setupReqTab() *widgets.QWidget {
 	addKindEdit()
 
 	// since
-	sinceHBox := widgets.NewQHBoxLayout()
-	layout.AddLayout(sinceHBox, 0)
-	sinceLabel := widgets.NewQLabel2("since:", nil, 0)
-	sinceHBox.AddWidget(sinceLabel, 0, 0)
-	req.sinceEdit = widgets.NewQDateTimeEdit(nil)
+	sinceHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(sinceHBox.QLayout)
+	sinceLabel := qt.NewQLabel2()
+	sinceLabel.SetText("since:")
+	sinceHBox.AddWidget(sinceLabel.QWidget)
+	req.sinceEdit = qt.NewQDateTimeEdit(tab)
 	{
-		time := core.NewQDateTime3(core.NewQDate3(0, 0, 0), core.NewQTime3(0, 0, 0, 0), 0)
+		time := qt.NewQDateTime()
 		time.SetMSecsSinceEpoch(0)
 		req.sinceEdit.SetDateTime(time)
 	}
-	sinceHBox.AddWidget(req.sinceEdit, 0, 0)
-	req.sinceEdit.ConnectDateTimeChanged(func(*core.QDateTime) {
+	sinceHBox.AddWidget(req.sinceEdit.QWidget)
+	req.sinceEdit.OnDateTimeChanged(func(*qt.QDateTime) {
 		updateReq()
 	})
 
 	// until
-	untilHBox := widgets.NewQHBoxLayout()
-	layout.AddLayout(untilHBox, 0)
-	untilLabel := widgets.NewQLabel2("until:", nil, 0)
-	untilHBox.AddWidget(untilLabel, 0, 0)
-	req.untilEdit = widgets.NewQDateTimeEdit(nil)
+	untilHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(untilHBox.QLayout)
+	untilLabel := qt.NewQLabel2()
+	untilLabel.SetText("until:")
+	untilHBox.AddWidget(untilLabel.QWidget)
+	req.untilEdit = qt.NewQDateTimeEdit(tab)
 	{
-		time := core.NewQDateTime3(core.NewQDate3(0, 0, 0), core.NewQTime3(0, 0, 0, 0), 0)
+		time := qt.NewQDateTime()
 		time.SetMSecsSinceEpoch(0)
 		req.untilEdit.SetDateTime(time)
 	}
-	untilHBox.AddWidget(req.untilEdit, 0, 0)
-	req.untilEdit.ConnectDateTimeChanged(func(*core.QDateTime) {
+	untilHBox.AddWidget(req.untilEdit.QWidget)
+	req.untilEdit.OnDateTimeChanged(func(*qt.QDateTime) {
 		updateReq()
 	})
 
 	// limit
-	limitHBox := widgets.NewQHBoxLayout()
-	layout.AddLayout(limitHBox, 0)
-	limitLabel := widgets.NewQLabel2("limit:", nil, 0)
-	limitHBox.AddWidget(limitLabel, 0, 0)
-	req.limitSpin = widgets.NewQSpinBox(nil)
+	limitHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(limitHBox.QLayout)
+	limitLabel := qt.NewQLabel2()
+	limitLabel.SetText("limit:")
+	limitHBox.AddWidget(limitLabel.QWidget)
+	req.limitSpin = qt.NewQSpinBox(tab)
 	req.limitSpin.SetMinimum(0)
 	req.limitSpin.SetMaximum(1000)
-	limitHBox.AddWidget(req.limitSpin, 0, 0)
-	req.limitSpin.ConnectValueChanged(func(int) {
+	limitHBox.AddWidget(req.limitSpin.QWidget)
+	req.limitSpin.OnValueChanged(func(int) {
 		updateReq()
 	})
 
 	// output
-	outputLabel := widgets.NewQLabel2("filter:", nil, 0)
-	layout.AddWidget(outputLabel, 0, 0)
-	req.outputEdit = widgets.NewQTextEdit(nil)
+	outputLabel := qt.NewQLabel2()
+	outputLabel.SetText("filter:")
+	layout.AddWidget(outputLabel.QWidget)
+	req.outputEdit = qt.NewQTextEdit(tab)
 	req.outputEdit.SetReadOnly(true)
-	layout.AddWidget(req.outputEdit, 0, 0)
+	layout.AddWidget(req.outputEdit.QWidget)
 
 	// relays
-	relaysLabel := widgets.NewQLabel2("relays:", nil, 0)
-	layout.AddWidget(relaysLabel, 0, 0)
-	relaysVBox := widgets.NewQVBoxLayout()
-	layout.AddLayout(relaysVBox, 0)
-	req.relaysEdits = []*widgets.QLineEdit{}
+	relaysLabel := qt.NewQLabel2()
+	relaysLabel.SetText("relays:")
+	layout.AddWidget(relaysLabel.QWidget)
+	relaysVBox := qt.NewQVBoxLayout2()
+	layout.AddLayout(relaysVBox.QLayout)
+	req.relaysEdits = []*qt.QLineEdit{}
 	var addRelayEdit func()
 	addRelayEdit = func() {
-		edit := widgets.NewQLineEdit(nil)
+		edit := qt.NewQLineEdit(tab)
 		req.relaysEdits = append(req.relaysEdits, edit)
-		relaysVBox.AddWidget(edit, 0, 0)
-		edit.ConnectTextChanged(func(text string) {
+		relaysVBox.AddWidget(edit.QWidget)
+		edit.OnTextChanged(func(text string) {
 			if strings.TrimSpace(text) != "" {
 				if edit == req.relaysEdits[len(req.relaysEdits)-1] {
 					addRelayEdit()
@@ -204,7 +211,7 @@ func setupReqTab() *widgets.QWidget {
 			} else {
 				n := len(req.relaysEdits)
 				if n >= 2 && strings.TrimSpace(req.relaysEdits[n-1].Text()) == "" && strings.TrimSpace(req.relaysEdits[n-2].Text()) == "" {
-					relaysVBox.Layout().RemoveWidget(req.relaysEdits[n-1])
+					relaysVBox.RemoveWidget(req.relaysEdits[n-1].QWidget)
 					req.relaysEdits[n-1].DeleteLater()
 					req.relaysEdits = req.relaysEdits[0 : n-1]
 				}
@@ -214,20 +221,21 @@ func setupReqTab() *widgets.QWidget {
 	addRelayEdit()
 
 	// send button
-	buttonHBox := widgets.NewQHBoxLayout()
-	layout.AddLayout(buttonHBox, 0)
-	sendButton := widgets.NewQPushButton2("send request", nil)
-	buttonHBox.AddWidget(sendButton, 0, 0)
-	buttonHBox.AddStretch(1)
+	buttonHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(buttonHBox.QLayout)
+	sendButton := qt.NewQPushButton5("send request", tab)
+	buttonHBox.AddWidget(sendButton.QWidget)
+	buttonHBox.AddStretch()
 
 	// results
-	resultsLabel := widgets.NewQLabel2("results:", nil, 0)
-	layout.AddWidget(resultsLabel, 0, 0)
-	req.resultsEdit = widgets.NewQTextEdit(nil)
+	resultsLabel := qt.NewQLabel2()
+	resultsLabel.SetText("results:")
+	layout.AddWidget(resultsLabel.QWidget)
+	req.resultsEdit = qt.NewQTextEdit(tab)
 	req.resultsEdit.SetReadOnly(true)
-	layout.AddWidget(req.resultsEdit, 0, 0)
+	layout.AddWidget(req.resultsEdit.QWidget)
 
-	sendButton.ConnectClicked(func(checked bool) {
+	sendButton.OnClicked(func() {
 		req.subscribe()
 	})
 

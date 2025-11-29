@@ -12,53 +12,58 @@ import (
 	"fiatjaf.com/nostr/nip19"
 	"fiatjaf.com/nostr/nip49"
 	"fiatjaf.com/nostr/sdk"
-	"github.com/therecipe/qt/widgets"
+	qt "github.com/mappu/miqt/qt6"
 )
 
 var (
+	window *qt.QMainWindow
+
 	currentSec   nostr.SecretKey
 	currentKeyer nostr.Keyer
-	statusLabel  *widgets.QLabel
+	statusLabel  *qt.QLabel
 	debounced    = debouncer.New(800 * time.Millisecond)
 	sys          = sdk.NewSystem()
 	ctx          = context.Background()
 )
 
 func main() {
-	app := widgets.NewQApplication(len(os.Args), os.Args)
+	qt.NewQApplication(os.Args)
 
-	window := widgets.NewQMainWindow(nil, 0)
+	window = qt.NewQMainWindow2()
+
 	window.SetMinimumSize2(800, 600)
 	window.SetWindowTitle("nakv")
 
-	centralWidget := widgets.NewQWidget(nil, 0)
+	centralWidget := qt.NewQWidget(window.QWidget)
 	window.SetCentralWidget(centralWidget)
 
-	mainLayout := widgets.NewQVBoxLayout()
-	centralWidget.SetLayout(mainLayout)
+	mainLayout := qt.NewQVBoxLayout2()
+	centralWidget.SetLayout(mainLayout.QLayout)
 
 	// private key input
-	secLabel := widgets.NewQLabel2("private key (hex or nsec):", nil, 0)
-	mainLayout.AddWidget(secLabel, 0, 0)
+	secLabel := qt.NewQLabel2()
+	secLabel.SetText("private key (hex or nsec):")
+	mainLayout.AddWidget(secLabel.QWidget)
 
-	secHBox := widgets.NewQHBoxLayout()
-	mainLayout.AddLayout(secHBox, 0)
-	secEdit := widgets.NewQLineEdit(nil)
-	secHBox.AddWidget(secEdit, 0, 0)
-	generateButton := widgets.NewQPushButton2("generate", nil)
-	secHBox.AddWidget(generateButton, 0, 0)
+	secHBox := qt.NewQHBoxLayout2()
+	mainLayout.AddLayout(secHBox.QLayout)
+	secEdit := qt.NewQLineEdit(centralWidget)
+	secHBox.AddWidget(secEdit.QWidget)
+	generateButton := qt.NewQPushButton5("generate", centralWidget)
+	secHBox.AddWidget(generateButton.QWidget)
 
 	// password input
-	passwordHBox := widgets.NewQHBoxLayout()
-	passwordWidget := widgets.NewQWidget(nil, 0)
-	passwordWidget.SetLayout(passwordHBox)
+	passwordHBox := qt.NewQHBoxLayout2()
+	passwordWidget := qt.NewQWidget(centralWidget)
+	passwordWidget.SetLayout(passwordHBox.QLayout)
 	passwordWidget.SetVisible(false)
-	mainLayout.AddWidget(passwordWidget, 0, 0)
-	passwordLabel := widgets.NewQLabel2("password:", nil, 0)
-	passwordHBox.AddWidget(passwordLabel, 0, 0)
-	secPasswordEdit := widgets.NewQLineEdit(nil)
-	secPasswordEdit.SetEchoMode(widgets.QLineEdit__Password)
-	passwordHBox.AddWidget(secPasswordEdit, 0, 0)
+	mainLayout.AddWidget(passwordWidget)
+	passwordLabel := qt.NewQLabel2()
+	passwordLabel.SetText("password:")
+	passwordHBox.AddWidget(passwordLabel.QWidget)
+	secPasswordEdit := qt.NewQLineEdit(passwordWidget)
+	secPasswordEdit.SetEchoMode(qt.QLineEdit__Password)
+	passwordHBox.AddWidget(secPasswordEdit.QWidget)
 	keyChanged := func(text string) {
 		text = strings.TrimSpace(text)
 
@@ -108,16 +113,16 @@ func main() {
 		statusLabel.SetText("")
 		return
 	}
-	secEdit.ConnectTextChanged(keyChanged)
-	secPasswordEdit.ConnectTextChanged(keyChanged)
-	generateButton.ConnectClicked(func(bool) {
+	secEdit.OnTextChanged(keyChanged)
+	secPasswordEdit.OnTextChanged(keyChanged)
+	generateButton.OnClicked(func() {
 		sk := nostr.Generate()
 		nsec := nip19.EncodeNsec(sk)
 		secEdit.SetText(nsec)
 		keyChanged(nsec)
 	})
 
-	tabWidget := widgets.NewQTabWidget(nil)
+	tabWidget := qt.NewQTabWidget(centralWidget)
 
 	eventTab := setupEventTab()
 	reqTab := setupReqTab()
@@ -125,15 +130,15 @@ func main() {
 	tabWidget.AddTab(eventTab, "event")
 	tabWidget.AddTab(reqTab, "req")
 
-	mainLayout.AddWidget(tabWidget, 0, 0)
+	mainLayout.AddWidget(tabWidget.QWidget)
 
-	statusLabel = widgets.NewQLabel2("", nil, 0)
-	mainLayout.AddWidget(statusLabel, 0, 0)
+	statusLabel = qt.NewQLabel2()
+	mainLayout.AddWidget(statusLabel.QWidget)
 
 	// initial render
 	updateEvent()
 	updateReq()
 
 	window.Show()
-	app.Exec()
+	qt.QApplication_Exec()
 }

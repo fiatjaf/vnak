@@ -5,7 +5,8 @@ go 1.25.4
 require (
 	fiatjaf.com/lib v0.3.2
 	fiatjaf.com/nostr v0.0.0-20251126120447-7261a4b515ed
-	github.com/therecipe/qt v0.0.0-20200904063919-c0c124a5770d
+	github.com/itchyny/gojq v0.12.17
+	github.com/mappu/miqt v0.12.0
 )
 
 require (
@@ -23,7 +24,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elnosh/gonuts v0.4.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
-	github.com/gopherjs/gopherjs v0.0.0-20190411002643-bd77b112433e // indirect
+	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
