@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"flag"
 	"os"
 	"strings"
 	"time"
@@ -25,12 +26,18 @@ var (
 	debounced    = debouncer.New(800 * time.Millisecond)
 	sys          = sdk.NewSystem()
 	ctx          = context.Background()
+	debug        = flag.Bool("debug", false, "enable debug mode")
 )
 
 func main() {
+	flag.Parse()
 	app = qt.NewQApplication(os.Args)
 
 	window = qt.NewQMainWindow2()
+
+	if *debug {
+		window.SetWindowFlag(qt.WindowStaysOnTopHint | qt.Dialog)
+	}
 
 	window.SetMinimumSize2(800, 600)
 	window.SetWindowTitle("nakv")
