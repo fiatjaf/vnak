@@ -19,8 +19,11 @@ type reqVars struct {
 	kindsLabels  []*qt.QLabel
 	relaysEdits  []*qt.QLineEdit
 	sinceEdit    *qt.QDateTimeEdit
+	sinceCheck   *qt.QCheckBox
 	untilEdit    *qt.QDateTimeEdit
+	untilCheck   *qt.QCheckBox
 	limitSpin    *qt.QSpinBox
+	limitCheck   *qt.QCheckBox
 
 	filter nostr.Filter
 
@@ -144,13 +147,26 @@ func setupReqTab() *qt.QWidget {
 	sinceLabel := qt.NewQLabel2()
 	sinceLabel.SetText("since:")
 	sinceHBox.AddWidget(sinceLabel.QWidget)
+	req.sinceCheck = qt.NewQCheckBox(tab)
+	req.sinceCheck.SetChecked(false)
+	sinceHBox.AddWidget(req.sinceCheck.QWidget)
 	req.sinceEdit = qt.NewQDateTimeEdit(tab)
+	req.sinceEdit.SetEnabled(false)
 	{
-		time := qt.NewQDateTime()
-		time.SetMSecsSinceEpoch(0)
-		req.sinceEdit.SetDateTime(time)
+		qtime := qt.NewQDateTime()
+		qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
+		req.sinceEdit.SetDateTime(qtime)
 	}
 	sinceHBox.AddWidget(req.sinceEdit.QWidget)
+	req.sinceCheck.OnStateChanged(func(state int) {
+		req.sinceEdit.SetEnabled(state == 2) // 2 is checked
+		if state == 2 {
+			qtime := qt.NewQDateTime()
+			qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
+			req.sinceEdit.SetDateTime(qtime)
+		}
+		updateReq()
+	})
 	req.sinceEdit.OnDateTimeChanged(func(*qt.QDateTime) {
 		updateReq()
 	})
@@ -161,13 +177,26 @@ func setupReqTab() *qt.QWidget {
 	untilLabel := qt.NewQLabel2()
 	untilLabel.SetText("until:")
 	untilHBox.AddWidget(untilLabel.QWidget)
+	req.untilCheck = qt.NewQCheckBox(tab)
+	req.untilCheck.SetChecked(false)
+	untilHBox.AddWidget(req.untilCheck.QWidget)
 	req.untilEdit = qt.NewQDateTimeEdit(tab)
+	req.untilEdit.SetEnabled(false)
 	{
-		time := qt.NewQDateTime()
-		time.SetMSecsSinceEpoch(0)
-		req.untilEdit.SetDateTime(time)
+		qtime := qt.NewQDateTime()
+		qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
+		req.untilEdit.SetDateTime(qtime)
 	}
 	untilHBox.AddWidget(req.untilEdit.QWidget)
+	req.untilCheck.OnStateChanged(func(state int) {
+		req.untilEdit.SetEnabled(state == 2) // 2 is checked
+		if state == 2 {
+			qtime := qt.NewQDateTime()
+			qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
+			req.untilEdit.SetDateTime(qtime)
+		}
+		updateReq()
+	})
 	req.untilEdit.OnDateTimeChanged(func(*qt.QDateTime) {
 		updateReq()
 	})
@@ -178,10 +207,18 @@ func setupReqTab() *qt.QWidget {
 	limitLabel := qt.NewQLabel2()
 	limitLabel.SetText("limit:")
 	limitHBox.AddWidget(limitLabel.QWidget)
+	req.limitCheck = qt.NewQCheckBox(tab)
+	req.limitCheck.SetChecked(false)
+	limitHBox.AddWidget(req.limitCheck.QWidget)
 	req.limitSpin = qt.NewQSpinBox(tab)
+	req.limitSpin.SetEnabled(false)
 	req.limitSpin.SetMinimum(0)
 	req.limitSpin.SetMaximum(1000)
 	limitHBox.AddWidget(req.limitSpin.QWidget)
+	req.limitCheck.OnStateChanged(func(state int) {
+		req.limitSpin.SetEnabled(state == 2) // 2 is checked
+		updateReq()
+	})
 	req.limitSpin.OnValueChanged(func(int) {
 		updateReq()
 	})
@@ -324,20 +361,24 @@ func updateReq() {
 	}
 
 	// since
-	if req.sinceEdit.DateTime().IsValid() {
+	if req.sinceCheck.IsChecked() && req.sinceEdit.DateTime().IsValid() {
 		ts := nostr.Timestamp(req.sinceEdit.DateTime().ToMSecsSinceEpoch() / 1000)
 		req.filter.Since = ts
 	}
 
 	// until
-	if req.untilEdit.DateTime().IsValid() {
+	if req.untilCheck.IsChecked() && req.untilEdit.DateTime().IsValid() {
 		ts := nostr.Timestamp(req.untilEdit.DateTime().ToMSecsSinceEpoch() / 1000)
 		req.filter.Until = ts
 	}
 
 	// limit
-	if req.limitSpin.Value() > 0 {
-		req.filter.Limit = req.limitSpin.Value()
+	if req.limitCheck.IsChecked() {
+		if req.limitSpin.Value() > 0 {
+			req.filter.Limit = req.limitSpin.Value()
+		} else {
+			req.filter.LimitZero = true
+		}
 	}
 
 	jsonBytes, _ := json.Marshal(req.filter)
