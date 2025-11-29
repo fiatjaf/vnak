@@ -25,7 +25,7 @@ type reqVars struct {
 	filter nostr.Filter
 
 	outputEdit  *qt.QTextEdit
-	resultsEdit *qt.QTextEdit
+	resultsList *qt.QListWidget
 }
 
 var req = reqVars{}
@@ -194,18 +194,24 @@ func setupReqTab() *qt.QWidget {
 	req.outputEdit.SetReadOnly(true)
 	layout.AddWidget(req.outputEdit.QWidget)
 
+	// send button
+	buttonHBox := qt.NewQHBoxLayout2()
+	sendButton := qt.NewQPushButton5("send request", tab)
+	buttonHBox.AddWidget(sendButton.QWidget)
+	buttonHBox.AddStretch()
+
 	// relays
 	relaysLabel := qt.NewQLabel2()
 	relaysLabel.SetText("relays:")
 	layout.AddWidget(relaysLabel.QWidget)
-	relaysVBox := qt.NewQVBoxLayout2()
-	layout.AddLayout(relaysVBox.QLayout)
+	relaysHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(relaysHBox.QLayout)
 	req.relaysEdits = []*qt.QLineEdit{}
 	var addRelayEdit func()
 	addRelayEdit = func() {
 		edit := qt.NewQLineEdit(tab)
 		req.relaysEdits = append(req.relaysEdits, edit)
-		relaysVBox.AddWidget(edit.QWidget)
+		relaysHBox.AddWidget(edit.QWidget)
 		edit.OnTextChanged(func(text string) {
 			if strings.TrimSpace(text) != "" {
 				if edit == req.relaysEdits[len(req.relaysEdits)-1] {
@@ -214,29 +220,26 @@ func setupReqTab() *qt.QWidget {
 			} else {
 				n := len(req.relaysEdits)
 				if n >= 2 && strings.TrimSpace(req.relaysEdits[n-1].Text()) == "" && strings.TrimSpace(req.relaysEdits[n-2].Text()) == "" {
-					relaysVBox.RemoveWidget(req.relaysEdits[n-1].QWidget)
+					relaysHBox.RemoveWidget(req.relaysEdits[n-1].QWidget)
 					req.relaysEdits[n-1].DeleteLater()
 					req.relaysEdits = req.relaysEdits[0 : n-1]
 				}
 			}
 		})
+		edit.OnReturnPressed(func() {
+			sendButton.Click()
+		})
 	}
 	addRelayEdit()
 
-	// send button
-	buttonHBox := qt.NewQHBoxLayout2()
 	layout.AddLayout(buttonHBox.QLayout)
-	sendButton := qt.NewQPushButton5("send request", tab)
-	buttonHBox.AddWidget(sendButton.QWidget)
-	buttonHBox.AddStretch()
 
 	// results
 	resultsLabel := qt.NewQLabel2()
 	resultsLabel.SetText("results:")
 	layout.AddWidget(resultsLabel.QWidget)
-	req.resultsEdit = qt.NewQTextEdit(tab)
-	req.resultsEdit.SetReadOnly(true)
-	layout.AddWidget(req.resultsEdit.QWidget)
+	req.resultsList = qt.NewQListWidget(tab)
+	layout.AddWidget(req.resultsList.QWidget)
 
 	sendButton.OnClicked(func() {
 		req.subscribe()
@@ -381,19 +384,16 @@ func (req reqVars) subscribe() {
 	// collect events
 	eosed := false
 	go func() {
-		first := true
 		for event := range eventsChan {
 			jsonBytes, _ := json.Marshal(event)
 			mainthread.Wait(func() {
+				item := qt.NewQListWidgetItem2(string(jsonBytes))
+
 				if eosed {
-					req.resultsEdit.SetPlainText(string(jsonBytes) + "\n" + req.resultsEdit.ToPlainText())
+					req.resultsList.InsertItem(0, item)
 				} else {
-					if !first {
-						req.resultsEdit.InsertPlainText("\n")
-					}
-					req.resultsEdit.InsertPlainText(string(jsonBytes))
+					req.resultsList.AddItemWithItem(item)
 				}
-				first = false
 			})
 		}
 		statusLabel.SetText("subscription ended")
