@@ -7,15 +7,19 @@ import (
 
 	"fiatjaf.com/nostr"
 	qt "github.com/mappu/miqt/qt6"
+	"github.com/mappu/miqt/qt6/mainthread"
 )
 
 var event struct {
-	kindSpin      *qt.QSpinBox
-	kindNameLabel *qt.QLabel
-	tagRows       [][]*qt.QLineEdit
-	contentEdit   *qt.QTextEdit
-	createdAtEdit *qt.QDateTimeEdit
-	outputEdit    *qt.QTextEdit
+	kindSpin           *qt.QSpinBox
+	kindNameLabel      *qt.QLabel
+	tagRows            [][]*qt.QLineEdit
+	contentEdit        *qt.QTextEdit
+	createdAtEdit      *qt.QDateTimeEdit
+	outputEdit         *qt.QTextEdit
+	relaysEdits        []*qt.QLineEdit
+	relaysStatusLabels []*qt.QLabel
+	currentEvent       *nostr.Event
 }
 
 func setupEventTab() *qt.QWidget {
@@ -137,6 +141,105 @@ func setupEventTab() *qt.QWidget {
 	event.outputEdit.SetReadOnly(true)
 	layout.AddWidget(event.outputEdit.QWidget)
 
+	// send button
+	buttonHBox := qt.NewQHBoxLayout2()
+	sendButton := qt.NewQPushButton5("send request", tab)
+	buttonHBox.AddWidget(sendButton.QWidget)
+	buttonHBox.AddStretch()
+
+	// relays
+	relaysLabel := qt.NewQLabel2()
+	relaysLabel.SetText("relays:")
+	layout.AddWidget(relaysLabel.QWidget)
+	relaysVBox := qt.NewQVBoxLayout2()
+	layout.AddLayout(relaysVBox.QLayout)
+	event.relaysEdits = []*qt.QLineEdit{}
+	event.relaysStatusLabels = []*qt.QLabel{}
+	var addRelayEdit func()
+	addRelayEdit = func() {
+		hbox := qt.NewQHBoxLayout2()
+		relaysVBox.AddLayout(hbox.QLayout)
+		edit := qt.NewQLineEdit(tab)
+		event.relaysEdits = append(event.relaysEdits, edit)
+		hbox.AddWidget(edit.QWidget)
+		label := qt.NewQLabel2()
+		label.SetMinimumWidth(12)
+		label.SetText("")
+		event.relaysStatusLabels = append(event.relaysStatusLabels, label)
+		hbox.AddWidget(label.QWidget)
+		edit.OnTextChanged(func(text string) {
+			if strings.TrimSpace(text) != "" {
+				if edit == event.relaysEdits[len(event.relaysEdits)-1] {
+					addRelayEdit()
+				}
+			} else {
+				n := len(event.relaysEdits)
+				if n >= 2 && strings.TrimSpace(event.relaysEdits[n-1].Text()) == "" && strings.TrimSpace(event.relaysEdits[n-2].Text()) == "" {
+					lastItem := relaysVBox.ItemAt(relaysVBox.Count() - 1)
+					relaysVBox.RemoveItem(lastItem)
+					lastHBox := lastItem.Layout()
+					lastHBox.RemoveWidget(event.relaysEdits[n-1].QWidget)
+					lastHBox.RemoveWidget(event.relaysStatusLabels[n-1].QWidget)
+					event.relaysEdits[n-1].DeleteLater()
+					event.relaysStatusLabels[n-1].DeleteLater()
+					lastHBox.DeleteLater()
+					event.relaysEdits = event.relaysEdits[0 : n-1]
+					event.relaysStatusLabels = event.relaysStatusLabels[0 : n-1]
+				}
+			}
+		})
+		edit.OnReturnPressed(func() {
+			sendButton.Click()
+		})
+	}
+	addRelayEdit()
+
+	layout.AddLayout(buttonHBox.QLayout)
+
+	sendButton.OnClicked(func() {
+		if event.currentEvent == nil {
+			statusLabel.SetText("no event to publish")
+			return
+		}
+
+		// collect relays
+		relays := []string{}
+		for _, edit := range event.relaysEdits {
+			url := strings.TrimSpace(edit.Text())
+			if url != "" {
+				relays = append(relays, nostr.NormalizeURL(url))
+			}
+		}
+		if len(relays) == 0 {
+			statusLabel.SetText("no relays specified")
+			return
+		}
+
+		// clear status labels
+		for _, label := range event.relaysStatusLabels {
+			label.SetText("")
+		}
+
+		// publish
+		results := sys.Pool.PublishMany(ctx, relays, *event.currentEvent)
+		go func() {
+			for result := range results {
+				mainthread.Wait(func() {
+					for i, relay := range relays {
+						if result.Relay.URL == relay {
+							if result.Error != nil {
+								event.relaysStatusLabels[i].SetText(strings.TrimPrefix(result.Error.Error(), "msg: "))
+							} else {
+								event.relaysStatusLabels[i].SetText("ok")
+							}
+							break
+						}
+					}
+				})
+			}
+		}()
+	})
+
 	return tab
 }
 
@@ -176,6 +279,7 @@ func updateEvent() {
 	}
 
 	finalize := func() {
+		event.currentEvent = &result
 		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
 		event.outputEdit.SetPlainText(string(jsonBytes))
 	}
