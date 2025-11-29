@@ -16,6 +16,7 @@ import (
 )
 
 var (
+	app    *qt.QApplication
 	window *qt.QMainWindow
 
 	currentSec   nostr.SecretKey
@@ -27,7 +28,7 @@ var (
 )
 
 func main() {
-	qt.NewQApplication(os.Args)
+	app = qt.NewQApplication(os.Args)
 
 	window = qt.NewQMainWindow2()
 

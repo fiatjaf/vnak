@@ -9,6 +9,7 @@ import (
 
 	"fiatjaf.com/nostr"
 	qt "github.com/mappu/miqt/qt6"
+	"github.com/mappu/miqt/qt6/mainthread"
 )
 
 type reqVars struct {
@@ -357,7 +358,9 @@ func (req reqVars) subscribe() {
 		go func() {
 			reason := <-sub.ClosedReason
 			time.Sleep(time.Second)
-			statusLabel.SetText(fmt.Sprintf("subscription closed: %s", reason))
+			mainthread.Wait(func() {
+				statusLabel.SetText(fmt.Sprintf("subscription closed: %s", reason))
+			})
 		}()
 	} else {
 		statusLabel.SetText("subscribed to " + strings.Join(niceRelayURLs(relays), ", "))
@@ -378,13 +381,20 @@ func (req reqVars) subscribe() {
 	// collect events
 	eosed := false
 	go func() {
+		first := true
 		for event := range eventsChan {
 			jsonBytes, _ := json.Marshal(event)
-			if eosed {
-				req.resultsEdit.SetPlainText(string(jsonBytes) + "\n" + req.resultsEdit.ToPlainText())
-			} else {
-				req.resultsEdit.InsertPlainText("\n" + string(jsonBytes))
-			}
+			mainthread.Wait(func() {
+				if eosed {
+					req.resultsEdit.SetPlainText(string(jsonBytes) + "\n" + req.resultsEdit.ToPlainText())
+				} else {
+					if !first {
+						req.resultsEdit.InsertPlainText("\n")
+					}
+					req.resultsEdit.InsertPlainText(string(jsonBytes))
+				}
+				first = false
+			})
 		}
 		statusLabel.SetText("subscription ended")
 	}()
