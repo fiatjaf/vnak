@@ -17,16 +17,18 @@ import (
 )
 
 var (
-	app    *qt.QApplication
-	window *qt.QMainWindow
+	app       *qt.QApplication
+	window    *qt.QMainWindow
+	tabWidget *qt.QTabWidget
 
 	currentSec   nostr.SecretKey
 	currentKeyer nostr.Keyer
 	statusLabel  *qt.QLabel
-	debounced    = debouncer.New(800 * time.Millisecond)
+	debounced    = debouncer.New(950 * time.Millisecond)
 	sys          = sdk.NewSystem()
 	ctx          = context.Background()
 	debug        = flag.Bool("debug", false, "enable debug mode")
+	initialTab   = flag.String("tab", "paste", "tab to open initially")
 )
 
 func main() {
@@ -130,13 +132,26 @@ func main() {
 		keyChanged(nsec)
 	})
 
-	tabWidget := qt.NewQTabWidget(centralWidget)
+	tabWidget = qt.NewQTabWidget(centralWidget)
 
 	eventTab := setupEventTab()
 	reqTab := setupReqTab()
+	pasteTab := setupPasteTab()
 
 	tabWidget.AddTab(eventTab, "event")
 	tabWidget.AddTab(reqTab, "req")
+	tabWidget.AddTab(pasteTab, "paste")
+
+	switch *initialTab {
+	case "event":
+		tabWidget.SetCurrentIndex(0)
+	case "req":
+		tabWidget.SetCurrentIndex(1)
+	case "paste":
+		tabWidget.SetCurrentIndex(2)
+	default:
+		tabWidget.SetCurrentIndex(2)
+	}
 
 	mainLayout.AddWidget(tabWidget.QWidget)
 
@@ -146,6 +161,7 @@ func main() {
 	// initial render
 	updateEvent()
 	updateReq()
+	updatePaste()
 
 	window.Show()
 	qt.QApplication_Exec()
