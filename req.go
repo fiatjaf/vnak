@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"fiatjaf.com/nostr"
 	qt "github.com/mappu/miqt/qt6"
@@ -248,7 +250,7 @@ func updateReq() {
 	// collect authors
 	authors := []nostr.PubKey{}
 	for _, edit := range req.authorsEdits {
-		if pk, err := nostr.PubKeyFromHex(strings.TrimSpace(edit.Text())); err == nil {
+		if pk, err := parsePubKey(strings.TrimSpace(edit.Text())); err == nil {
 			authors = append(authors, pk)
 		}
 	}
@@ -259,7 +261,7 @@ func updateReq() {
 	// collect ids
 	ids := []nostr.ID{}
 	for _, edit := range req.idsEdits {
-		if id, err := nostr.IDFromHex(strings.TrimSpace(edit.Text())); err == nil {
+		if id, err := parseEventID(strings.TrimSpace(edit.Text())); err == nil {
 			ids = append(ids, id)
 		}
 	}
@@ -330,32 +332,65 @@ func (req reqVars) subscribe() {
 	}
 
 	// subscribe
-	statusLabel.SetText("subscribed to " + strings.Join(relays, " "))
-	eoseChan := make(chan struct{})
-	eventsChan := sys.Pool.SubscribeManyNotifyEOSE(ctx, relays, req.filter, eoseChan, nostr.SubscriptionOptions{
-		Label: "nakv-req",
-	})
+	var eoseChan chan struct{}
+	var eventsChan chan nostr.Event
+
+	if len(relays) == 1 {
+		relay, err := sys.Pool.EnsureRelay(relays[0])
+		if err != nil {
+			statusLabel.SetText(fmt.Sprintf("failed to connect to %s: %s", niceRelayURL(relays[0]), err))
+			return
+		}
+
+		statusLabel.SetText("subscribed to " + niceRelayURL(relay.URL))
+		sub, err := relay.Subscribe(ctx, req.filter, nostr.SubscriptionOptions{
+			Label: "nakv-req-1",
+		})
+		if err != nil {
+			statusLabel.SetText(fmt.Sprintf("failed to subscribe to %s: %s", niceRelayURL(relay.URL), err))
+			return
+		}
+
+		eventsChan = sub.Events
+		eoseChan = sub.EndOfStoredEvents
+
+		go func() {
+			reason := <-sub.ClosedReason
+			time.Sleep(time.Second)
+			statusLabel.SetText(fmt.Sprintf("subscription closed: %s", reason))
+		}()
+	} else {
+		statusLabel.SetText("subscribed to " + strings.Join(niceRelayURLs(relays), ", "))
+		eoseChan = make(chan struct{})
+		eventsChan = make(chan nostr.Event)
+
+		go func() {
+			for ie := range sys.Pool.SubscribeManyNotifyEOSE(ctx, relays, req.filter, eoseChan,
+				nostr.SubscriptionOptions{
+					Label: "nakv-req",
+				},
+			) {
+				eventsChan <- ie.Event
+			}
+		}()
+	}
 
 	// collect events
+	eosed := false
 	go func() {
-		eosed := false
-		for {
-			select {
-			case ie, ok := <-eventsChan:
-				if !ok {
-					statusLabel.SetText("subscription ended")
-					return
-				}
-
-				jsonBytes, _ := json.Marshal(ie.Event)
-				if eosed {
-					req.resultsEdit.SetPlainText(string(jsonBytes) + "\n" + req.resultsEdit.ToPlainText())
-				} else {
-					req.resultsEdit.InsertPlainText("\n" + string(jsonBytes))
-				}
-			case <-eoseChan:
-				eosed = true
+		for event := range eventsChan {
+			jsonBytes, _ := json.Marshal(event)
+			if eosed {
+				req.resultsEdit.SetPlainText(string(jsonBytes) + "\n" + req.resultsEdit.ToPlainText())
+			} else {
+				req.resultsEdit.InsertPlainText("\n" + string(jsonBytes))
 			}
 		}
+		statusLabel.SetText("subscription ended")
+	}()
+
+	go func() {
+		<-eoseChan
+		eosed = true
 	}()
 }
