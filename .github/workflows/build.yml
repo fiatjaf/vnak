@@ -3,47 +3,89 @@ name: build
 on: [push]
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v4
-      with:
-        go-version: '1.25'
-    - run: |
+   build-linux:
+     runs-on: ubuntu-latest
+     steps:
+     - uses: actions/checkout@v4
+     - uses: actions/setup-go@v4
+       with:
+         go-version: '1.25'
+     - id: go-cache-paths
+       run: |
+         echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
+         echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+     - name: Go Mod Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-mod }}
+         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+     - name: Go Build Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-build }}
+         key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+     - run: |
          sudo apt-get update
          sudo apt-get -y install build-essential libglu1-mesa-dev libpulse-dev libglib2.0-dev pkg-config qt6-base-dev
-    - run: go build -ldflags '-s -w'
-    - name: Upload Linux binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: vnak-linux-amd64
-        path: vnak
-  build-windows:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v4
-      with:
-        go-version: '1.25'
-    - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
-    - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
-    - name: Upload Windows binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: vnak-windows-amd64
-        path: vnak.exe
-  build-mac:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-go@v4
-      with:
-        go-version: '1.25'
-    - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
-    - run: ~/go/bin/miqt-docker osxcross -build
-    - name: Upload macOS binary
-      uses: actions/upload-artifact@v4
-      with:
-        name: vnak-macos-amd64
-        path: vnak
+     - run: go build -ldflags '-s -w'
+     - name: Upload Linux binary
+       uses: actions/upload-artifact@v4
+       with:
+         name: vnak-linux-amd64
+         path: vnak
+   build-windows:
+     runs-on: ubuntu-latest
+     steps:
+     - uses: actions/checkout@v4
+     - uses: actions/setup-go@v4
+       with:
+         go-version: '1.25'
+     - id: go-cache-paths
+       run: |
+         echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
+         echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+     - name: Go Mod Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-mod }}
+         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+     - name: Go Build Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-build }}
+         key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+     - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
+     - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
+     - name: Upload Windows binary
+       uses: actions/upload-artifact@v4
+       with:
+         name: vnak-windows-amd64
+         path: vnak.exe
+   build-mac:
+     runs-on: ubuntu-latest
+     steps:
+     - uses: actions/checkout@v4
+     - uses: actions/setup-go@v4
+       with:
+         go-version: '1.25'
+     - id: go-cache-paths
+       run: |
+         echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
+         echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+     - name: Go Mod Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-mod }}
+         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+     - name: Go Build Cache
+       uses: actions/cache@v4
+       with:
+         path: ${{ steps.go-cache-paths.outputs.go-build }}
+         key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+     - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
+     - run: ~/go/bin/miqt-docker osxcross -build
+     - name: Upload macOS binary
+       uses: actions/upload-artifact@v4
+       with:
+         name: vnak-macos-amd64
+         path: vnak
