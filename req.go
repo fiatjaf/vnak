@@ -192,6 +192,7 @@ func setupReqTab() *qt.QWidget {
 	layout.AddWidget(outputLabel.QWidget)
 	req.outputEdit = qt.NewQTextEdit(tab)
 	req.outputEdit.SetReadOnly(true)
+	req.outputEdit.SetMaximumHeight(100)
 	layout.AddWidget(req.outputEdit.QWidget)
 
 	// send button
@@ -239,7 +240,29 @@ func setupReqTab() *qt.QWidget {
 	resultsLabel.SetText("results:")
 	layout.AddWidget(resultsLabel.QWidget)
 	req.resultsList = qt.NewQListWidget(tab)
+	req.resultsList.SetMinimumHeight(200)
 	layout.AddWidget(req.resultsList.QWidget)
+
+	// double-click to show pretty JSON
+	req.resultsList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
+		var event nostr.Event
+		if err := json.Unmarshal([]byte(item.Text()), &event); err != nil {
+			return
+		}
+		pretty, _ := json.MarshalIndent(event, "", "  ")
+		dialog := qt.NewQDialog(window.QWidget)
+		dialog.SetWindowTitle("Event Details")
+		dlayout := qt.NewQVBoxLayout2()
+		dialog.SetLayout(dlayout.QLayout)
+		textEdit := qt.NewQTextEdit(dialog.QWidget)
+		textEdit.SetReadOnly(true)
+		textEdit.SetPlainText(string(pretty))
+		dlayout.AddWidget(textEdit.QWidget)
+		closeButton := qt.NewQPushButton5("Close", dialog.QWidget)
+		closeButton.OnClicked(func() { dialog.Close() })
+		dlayout.AddWidget(closeButton.QWidget)
+		dialog.Exec()
+	})
 
 	sendButton.OnClicked(func() {
 		req.subscribe()
