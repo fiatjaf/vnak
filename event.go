@@ -163,8 +163,6 @@ func setupEventTab() *qt.QWidget {
 		event.relaysEdits = append(event.relaysEdits, edit)
 		hbox.AddWidget(edit.QWidget)
 		label := qt.NewQLabel2()
-		label.SetMinimumWidth(12)
-		label.SetText("")
 		event.relaysStatusLabels = append(event.relaysStatusLabels, label)
 		hbox.AddWidget(label.QWidget)
 		edit.OnTextChanged(func(text string) {
@@ -297,7 +295,11 @@ func updateEvent() {
 
 		if currentSec == [32]byte{} {
 			// empty key, we must have a bunker
-			debounced.Call(signAndFinalize)
+			debounced.Call(func() {
+				mainthread.Wait(func() {
+					signAndFinalize()
+				})
+			})
 		} else {
 			// we have a key, can sign immediately
 			signAndFinalize()
