@@ -50,13 +50,23 @@ jobs:
      - name: Go Mod Cache
        uses: actions/cache@v4
        with:
-         path: ${{ steps.go-cache-paths.outputs.go-mod }}
-         key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+        path: ${{ steps.go-cache-paths.outputs.go-mod }}
+        key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
      - name: Go Build Cache
        uses: actions/cache@v4
        with:
          path: container-build-cache
          key: ${{ runner.os }}-go-container-build-${{ hashFiles('**/go.sum') }}
+     - name: Cache Docker Global
+       uses: actions/cache@v4
+       with:
+         path: /var/lib/docker
+         key: docker-global-${{ runner.os }}
+     - name: Cache Docker Local
+       uses: actions/cache@v4
+       with:
+         path: ~/.docker
+         key: docker-local-${{ runner.os }}
      - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
      - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
      - name: Upload Windows binary
@@ -68,17 +78,17 @@ jobs:
      needs: [build-linux, build-windows]
      runs-on: ubuntu-latest
      steps:
-     - uses: actions/download-artifact@v4
-       with:
-         name: vnak-linux-amd64
-     - uses: actions/download-artifact@v4
-       with:
-         name: vnak-windows-amd64
-     - name: Create Release
-       uses: softprops/action-gh-release@v1
-       with:
-         files: |
-           vnak
-           vnak.exe
-       env:
-         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: vnak-linux-amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: vnak-windows-amd64
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vnak
+            vnak.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
