@@ -27,6 +27,7 @@ var (
 		event int
 		req   int
 		paste int
+		serve int
 	}
 	statusLabel *qt.QLabel
 
@@ -144,6 +145,7 @@ func main() {
 	eventTab := setupEventTab()
 	reqTab := setupReqTab()
 	pasteTab := setupPasteTab()
+	serveTab := setupServeTab()
 
 	tabWidget.AddTab(eventTab, "event")
 	tabIndexes.event = 0
@@ -154,6 +156,9 @@ func main() {
 	tabWidget.AddTab(pasteTab, "paste")
 	tabIndexes.paste = 2
 
+	tabWidget.AddTab(serveTab, "serve")
+	tabIndexes.serve = 3
+
 	switch *initialTab {
 	case "event":
 		tabWidget.SetCurrentIndex(tabIndexes.event)
@@ -161,6 +166,8 @@ func main() {
 		tabWidget.SetCurrentIndex(tabIndexes.req)
 	case "paste":
 		tabWidget.SetCurrentIndex(tabIndexes.paste)
+	case "serve":
+		tabWidget.SetCurrentIndex(tabIndexes.serve)
 	default:
 		tabWidget.SetCurrentIndex(0)
 	}
