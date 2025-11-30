@@ -10,15 +10,20 @@ import (
 	"fiatjaf.com/nostr"
 	qt "github.com/mappu/miqt/qt6"
 	"github.com/mappu/miqt/qt6/mainthread"
+	"golang.org/x/exp/slices"
 )
 
 type reqVars struct {
+	tab *qt.QWidget
+
+	authorsVBox  *qt.QVBoxLayout
 	authorsEdits []*qt.QLineEdit
+	idsVBox      *qt.QVBoxLayout
 	idsEdits     []*qt.QLineEdit
-	kindsEdits   []*qt.QLineEdit
-	kindsLabels  []*qt.QLabel
-	tagRows      [][]*qt.QLineEdit
-	tagRowHBoxes []*qt.QHBoxLayout
+	kindsVBox    *qt.QVBoxLayout
+	kindRows     []reqKindRow
+	tagsVBox     *qt.QVBoxLayout
+	tagRows      []reqTagRow
 	tagsLayout   *qt.QVBoxLayout
 	relaysEdits  []*qt.QLineEdit
 	sinceEdit    *qt.QDateTimeEdit
@@ -34,115 +39,52 @@ type reqVars struct {
 	resultsList *qt.QListWidget
 }
 
+type reqKindRow struct {
+	hbox  *qt.QHBoxLayout
+	edit  *qt.QLineEdit
+	label *qt.QLabel
+}
+
+type reqTagRow struct {
+	hbox      *qt.QHBoxLayout
+	key       *qt.QLineEdit
+	separator *qt.QLabel
+	vals      []*qt.QLineEdit
+}
+
 var req = &reqVars{}
 
 func setupReqTab() *qt.QWidget {
-	tab := qt.NewQWidget(window.QWidget)
+	req.tab = qt.NewQWidget(window.QWidget)
 	layout := qt.NewQVBoxLayout2()
-	tab.SetLayout(layout.QLayout)
+	req.tab.SetLayout(layout.QLayout)
 
 	// authors
 	authorsLabel := qt.NewQLabel2()
 	authorsLabel.SetText("authors:")
 	layout.AddWidget(authorsLabel.QWidget)
-	authorsVBox := qt.NewQVBoxLayout2()
-	layout.AddLayout(authorsVBox.QLayout)
+	req.authorsVBox = qt.NewQVBoxLayout2()
+	layout.AddLayout(req.authorsVBox.QLayout)
 	req.authorsEdits = []*qt.QLineEdit{}
-	var addAuthorEdit func()
-	addAuthorEdit = func() {
-		edit := qt.NewQLineEdit(tab)
-		req.authorsEdits = append(req.authorsEdits, edit)
-		authorsVBox.AddWidget(edit.QWidget)
-		edit.OnTextChanged(func(text string) {
-			if strings.TrimSpace(text) != "" {
-				if edit == req.authorsEdits[len(req.authorsEdits)-1] {
-					addAuthorEdit()
-				}
-			} else {
-				n := len(req.authorsEdits)
-				if n >= 2 && strings.TrimSpace(req.authorsEdits[n-1].Text()) == "" && strings.TrimSpace(req.authorsEdits[n-2].Text()) == "" {
-					authorsVBox.RemoveWidget(req.authorsEdits[n-1].QWidget)
-					req.authorsEdits[n-1].DeleteLater()
-					req.authorsEdits = req.authorsEdits[0 : n-1]
-				}
-			}
-			req.updateReq()
-		})
-	}
-	addAuthorEdit()
+	req.addAuthor("")
 
 	// ids
 	idsLabel := qt.NewQLabel2()
 	idsLabel.SetText("ids:")
 	layout.AddWidget(idsLabel.QWidget)
-	idsVBox := qt.NewQVBoxLayout2()
-	layout.AddLayout(idsVBox.QLayout)
+	req.idsVBox = qt.NewQVBoxLayout2()
+	layout.AddLayout(req.idsVBox.QLayout)
 	req.idsEdits = []*qt.QLineEdit{}
-	var addIdEdit func()
-	addIdEdit = func() {
-		edit := qt.NewQLineEdit(tab)
-		req.idsEdits = append(req.idsEdits, edit)
-		idsVBox.AddWidget(edit.QWidget)
-		edit.OnTextChanged(func(text string) {
-			if strings.TrimSpace(text) != "" {
-				if edit == req.idsEdits[len(req.idsEdits)-1] {
-					addIdEdit()
-				}
-			} else {
-				n := len(req.idsEdits)
-				if n >= 2 && strings.TrimSpace(req.idsEdits[n-1].Text()) == "" && strings.TrimSpace(req.idsEdits[n-2].Text()) == "" {
-					idsVBox.RemoveWidget(req.idsEdits[n-1].QWidget)
-					req.idsEdits[n-1].DeleteLater()
-					req.idsEdits = req.idsEdits[0 : n-1]
-				}
-			}
-			req.updateReq()
-		})
-	}
-	addIdEdit()
+	req.addId("")
 
 	// kinds
 	kindsLabel := qt.NewQLabel2()
 	kindsLabel.SetText("kinds:")
 	layout.AddWidget(kindsLabel.QWidget)
-	kindsVBox := qt.NewQVBoxLayout2()
-	layout.AddLayout(kindsVBox.QLayout)
-	req.kindsEdits = []*qt.QLineEdit{}
-	req.kindsLabels = []*qt.QLabel{}
-	var addKindEdit func()
-	addKindEdit = func() {
-		hbox := qt.NewQHBoxLayout2()
-		kindsVBox.AddLayout(hbox.QLayout)
-		edit := qt.NewQLineEdit(tab)
-		req.kindsEdits = append(req.kindsEdits, edit)
-		hbox.AddWidget(edit.QWidget)
-		label := qt.NewQLabel2()
-		req.kindsLabels = append(req.kindsLabels, label)
-		hbox.AddWidget(label.QWidget)
-		edit.OnTextChanged(func(text string) {
-			if strings.TrimSpace(text) != "" {
-				if edit == req.kindsEdits[len(req.kindsEdits)-1] {
-					addKindEdit()
-				}
-			} else {
-				n := len(req.kindsEdits)
-				if n >= 2 && strings.TrimSpace(req.kindsEdits[n-1].Text()) == "" && strings.TrimSpace(req.kindsEdits[n-2].Text()) == "" {
-					lastItem := kindsVBox.ItemAt(kindsVBox.Count() - 1)
-					kindsVBox.RemoveItem(lastItem)
-					lastHBox := lastItem.Layout()
-					lastHBox.RemoveWidget(req.kindsEdits[n-1].QWidget)
-					lastHBox.RemoveWidget(req.kindsLabels[n-1].QWidget)
-					req.kindsEdits[n-1].DeleteLater()
-					req.kindsLabels[n-1].DeleteLater()
-					lastHBox.DeleteLater()
-					req.kindsEdits = req.kindsEdits[0 : n-1]
-					req.kindsLabels = req.kindsLabels[0 : n-1]
-				}
-			}
-			req.updateReq()
-		})
-	}
-	addKindEdit()
+	req.kindsVBox = qt.NewQVBoxLayout2()
+	layout.AddLayout(req.kindsVBox.QLayout)
+	req.kindRows = []reqKindRow{}
+	req.addKind("")
 
 	// tags
 	tagsLabel := qt.NewQLabel2()
@@ -150,55 +92,8 @@ func setupReqTab() *qt.QWidget {
 	layout.AddWidget(tagsLabel.QWidget)
 	req.tagsLayout = qt.NewQVBoxLayout2()
 	layout.AddLayout(req.tagsLayout.QLayout)
-	req.tagRows = make([][]*qt.QLineEdit, 0, 2)
-	req.tagRowHBoxes = make([]*qt.QHBoxLayout, 0, 2)
-	var addTagRow func()
-	addTagRow = func() {
-		hbox := qt.NewQHBoxLayout2()
-		req.tagRowHBoxes = append(req.tagRowHBoxes, hbox)
-		req.tagsLayout.AddLayout(hbox.QLayout)
-		tagItems := []*qt.QLineEdit{}
-		y := len(req.tagRows)
-		req.tagRows = append(req.tagRows, tagItems)
-
-		var addItem func()
-		addItem = func() {
-			edit := qt.NewQLineEdit(tab)
-			hbox.AddWidget(edit.QWidget)
-			x := len(tagItems)
-			tagItems = append(tagItems, edit)
-			req.tagRows[y] = tagItems
-			edit.OnTextChanged(func(text string) {
-				if strings.TrimSpace(text) != "" {
-					if y == len(req.tagRows)-1 && x == 0 {
-						addTagRow()
-					}
-					if x == len(tagItems)-1 {
-						addItem()
-					}
-				} else {
-					nItems := len(tagItems)
-					if nItems >= 2 && strings.TrimSpace(tagItems[nItems-1].Text()) == "" && strings.TrimSpace(tagItems[nItems-2].Text()) == "" {
-						hbox.RemoveWidget(tagItems[nItems-1].QWidget)
-						tagItems[nItems-1].DeleteLater()
-						tagItems = tagItems[0 : nItems-1]
-						req.tagRows[y] = tagItems
-					}
-
-					nRows := len(req.tagRows)
-					if nRows >= 2 && len(req.tagRows[nRows-1]) == 0 && len(req.tagRows[nRows-2]) == 0 {
-						req.tagsLayout.RemoveItem(hbox.QLayoutItem)
-						hbox.DeleteLater()
-						req.tagRows = req.tagRows[0 : nRows-1]
-						req.tagRowHBoxes = req.tagRowHBoxes[0 : nRows-1]
-					}
-				}
-				req.updateReq()
-			})
-		}
-		addItem()
-	}
-	addTagRow()
+	req.tagRows = make([]reqTagRow, 0, 2)
+	req.addTagRow("", []string{""})
 
 	// since
 	sinceHBox := qt.NewQHBoxLayout2()
@@ -206,10 +101,10 @@ func setupReqTab() *qt.QWidget {
 	sinceLabel := qt.NewQLabel2()
 	sinceLabel.SetText("since:")
 	sinceHBox.AddWidget(sinceLabel.QWidget)
-	req.sinceCheck = qt.NewQCheckBox(tab)
+	req.sinceCheck = qt.NewQCheckBox(req.tab)
 	req.sinceCheck.SetChecked(false)
 	sinceHBox.AddWidget(req.sinceCheck.QWidget)
-	req.sinceEdit = qt.NewQDateTimeEdit(tab)
+	req.sinceEdit = qt.NewQDateTimeEdit(req.tab)
 	req.sinceEdit.SetEnabled(false)
 	{
 		qtime := qt.NewQDateTime()
@@ -236,10 +131,10 @@ func setupReqTab() *qt.QWidget {
 	untilLabel := qt.NewQLabel2()
 	untilLabel.SetText("until:")
 	untilHBox.AddWidget(untilLabel.QWidget)
-	req.untilCheck = qt.NewQCheckBox(tab)
+	req.untilCheck = qt.NewQCheckBox(req.tab)
 	req.untilCheck.SetChecked(false)
 	untilHBox.AddWidget(req.untilCheck.QWidget)
-	req.untilEdit = qt.NewQDateTimeEdit(tab)
+	req.untilEdit = qt.NewQDateTimeEdit(req.tab)
 	req.untilEdit.SetEnabled(false)
 	{
 		qtime := qt.NewQDateTime()
@@ -266,10 +161,10 @@ func setupReqTab() *qt.QWidget {
 	limitLabel := qt.NewQLabel2()
 	limitLabel.SetText("limit:")
 	limitHBox.AddWidget(limitLabel.QWidget)
-	req.limitCheck = qt.NewQCheckBox(tab)
+	req.limitCheck = qt.NewQCheckBox(req.tab)
 	req.limitCheck.SetChecked(false)
 	limitHBox.AddWidget(req.limitCheck.QWidget)
-	req.limitSpin = qt.NewQSpinBox(tab)
+	req.limitSpin = qt.NewQSpinBox(req.tab)
 	req.limitSpin.SetEnabled(false)
 	req.limitSpin.SetMinimum(0)
 	req.limitSpin.SetMaximum(1000)
@@ -286,14 +181,14 @@ func setupReqTab() *qt.QWidget {
 	outputLabel := qt.NewQLabel2()
 	outputLabel.SetText("filter:")
 	layout.AddWidget(outputLabel.QWidget)
-	req.outputEdit = qt.NewQTextEdit(tab)
+	req.outputEdit = qt.NewQTextEdit(req.tab)
 	req.outputEdit.SetReadOnly(true)
 	req.outputEdit.SetMaximumHeight(100)
 	layout.AddWidget(req.outputEdit.QWidget)
 
 	// send button
 	buttonHBox := qt.NewQHBoxLayout2()
-	sendButton := qt.NewQPushButton5("send request", tab)
+	sendButton := qt.NewQPushButton5("send request", req.tab)
 	buttonHBox.AddWidget(sendButton.QWidget)
 	buttonHBox.AddStretch()
 
@@ -306,7 +201,7 @@ func setupReqTab() *qt.QWidget {
 	req.relaysEdits = []*qt.QLineEdit{}
 	var addRelayEdit func()
 	addRelayEdit = func() {
-		edit := qt.NewQLineEdit(tab)
+		edit := qt.NewQLineEdit(req.tab)
 		req.relaysEdits = append(req.relaysEdits, edit)
 		relaysHBox.AddWidget(edit.QWidget)
 		edit.OnTextChanged(func(text string) {
@@ -335,7 +230,7 @@ func setupReqTab() *qt.QWidget {
 	resultsLabel := qt.NewQLabel2()
 	resultsLabel.SetText("results:")
 	layout.AddWidget(resultsLabel.QWidget)
-	req.resultsList = qt.NewQListWidget(tab)
+	req.resultsList = qt.NewQListWidget(req.tab)
 	req.resultsList.SetMinimumHeight(200)
 	layout.AddWidget(req.resultsList.QWidget)
 
@@ -347,14 +242,16 @@ func setupReqTab() *qt.QWidget {
 		}
 		pretty, _ := json.MarshalIndent(event, "", "  ")
 		dialog := qt.NewQDialog(window.QWidget)
-		dialog.SetWindowTitle("Event Details")
+		dialog.SetWindowTitle("event")
+		dialog.SetMinimumWidth(400)
+		dialog.SetMinimumHeight(500)
 		dlayout := qt.NewQVBoxLayout2()
 		dialog.SetLayout(dlayout.QLayout)
 		textEdit := qt.NewQTextEdit(dialog.QWidget)
 		textEdit.SetReadOnly(true)
 		textEdit.SetPlainText(string(pretty))
 		dlayout.AddWidget(textEdit.QWidget)
-		closeButton := qt.NewQPushButton5("Close", dialog.QWidget)
+		closeButton := qt.NewQPushButton5("close", dialog.QWidget)
 		closeButton.OnClicked(func() { dialog.Close() })
 		dlayout.AddWidget(closeButton.QWidget)
 		dialog.Exec()
@@ -364,7 +261,7 @@ func setupReqTab() *qt.QWidget {
 		req.subscribe()
 	})
 
-	return tab
+	return req.tab
 }
 
 func (req *reqVars) updateReq() {
@@ -394,10 +291,19 @@ func (req *reqVars) updateReq() {
 
 	// collect kinds
 	kinds := []nostr.Kind{}
-	for _, edit := range req.kindsEdits {
-		text := strings.TrimSpace(edit.Text())
+	for _, kindRow := range req.kindRows {
+		text := strings.TrimSpace(kindRow.edit.Text())
 		if k, err := strconv.Atoi(text); err == nil {
-			kinds = append(kinds, nostr.Kind(k))
+			kind := nostr.Kind(k)
+			kinds = append(kinds, kind)
+
+			// update kind label
+			name := kind.Name()
+			if name != "unknown" {
+				kindRow.label.SetText(name)
+			} else {
+				kindRow.label.SetText("")
+			}
 		}
 	}
 	if len(kinds) > 0 {
@@ -406,13 +312,14 @@ func (req *reqVars) updateReq() {
 
 	// collect tags
 	tags := make(map[string][]string)
-	for _, tagItems := range req.tagRows {
-		if len(tagItems) == 0 || strings.TrimSpace(tagItems[0].Text()) == "" {
+	for _, tagRow := range req.tagRows {
+		key := strings.TrimSpace(tagRow.key.Text())
+		if key == "" || len(tagRow.vals) == 0 {
 			continue
 		}
-		key := strings.TrimSpace(tagItems[0].Text())
-		values := []string{}
-		for _, edit := range tagItems[1:] {
+
+		values := make([]string, 0, len(tagRow.vals))
+		for _, edit := range tagRow.vals {
 			text := strings.TrimSpace(edit.Text())
 			if text != "" {
 				values = append(values, text)
@@ -424,21 +331,6 @@ func (req *reqVars) updateReq() {
 	}
 	if len(tags) > 0 {
 		req.filter.Tags = tags
-	}
-
-	// update kind labels
-	for i, kind := range kinds {
-		if i < len(req.kindsLabels) {
-			name := kind.Name()
-			if name != "unknown" {
-				req.kindsLabels[i].SetText(name)
-			} else {
-				req.kindsLabels[i].SetText("")
-			}
-		}
-	}
-	for i := len(kinds); i < len(req.kindsLabels); i++ {
-		req.kindsLabels[i].SetText("")
 	}
 
 	// since
@@ -551,78 +443,70 @@ func (req *reqVars) subscribe() {
 }
 
 func (req *reqVars) populate(filter nostr.Filter) {
-	// clear all authors, kinds, ids fields
-	// For simplicity, clear all and add new ones
-	// But since the UI is dynamic, perhaps set the first one and clear others
-
-	// For authors
-	if len(filter.Authors) > 0 {
-		req.authorsEdits[0].SetText(filter.Authors[0].String())
-		for i := 1; i < len(req.authorsEdits); i++ {
-			req.authorsEdits[i].SetText("")
-		}
-	} else {
-		for _, edit := range req.authorsEdits {
-			edit.SetText("")
-		}
+	// clear all authors except the first, set the first to ""
+	for _, authorEdit := range req.authorsEdits {
+		req.authorsVBox.RemoveWidget(authorEdit.QWidget)
+		authorEdit.DeleteLater()
 	}
+	req.authorsEdits = req.authorsEdits[:0]
 
-	// For ids
-	if len(filter.IDs) > 0 {
-		req.idsEdits[0].SetText(filter.IDs[0].String())
-		for i := 1; i < len(req.idsEdits); i++ {
-			req.idsEdits[i].SetText("")
-		}
-	} else {
-		for _, edit := range req.idsEdits {
-			edit.SetText("")
-		}
+	// add authors
+	for _, author := range filter.Authors {
+		req.addAuthor(author.Hex())
 	}
+	req.addAuthor("") // extra
 
-	// For kinds
-	if len(filter.Kinds) > 0 {
-		req.kindsEdits[0].SetText(strconv.Itoa(int(filter.Kinds[0])))
-		for i := 1; i < len(req.kindsEdits); i++ {
-			if i < len(filter.Kinds) {
-				req.kindsEdits[i].SetText(strconv.Itoa(int(filter.Kinds[i])))
-			} else {
-				req.kindsEdits[i].SetText("")
-			}
-		}
-	} else {
-		for _, edit := range req.kindsEdits {
-			edit.SetText("")
-		}
+	// clear all ids except the first, set the first to ""
+	for _, idEdit := range req.idsEdits {
+		req.idsVBox.RemoveWidget(idEdit.QWidget)
+		idEdit.DeleteLater()
 	}
+	req.idsEdits = req.idsEdits[:0]
+
+	// add ids
+	for _, id := range filter.IDs {
+		req.addId(id.Hex())
+	}
+	req.addId("") // extra
+
+	// clear all kinds except the first, set the first to ""
+	for _, kindRow := range req.kindRows {
+		kindRow.hbox.RemoveWidget(kindRow.label.QWidget)
+		kindRow.hbox.RemoveWidget(kindRow.edit.QWidget)
+		kindRow.label.DeleteLater()
+		kindRow.edit.DeleteLater()
+		req.kindsVBox.RemoveItem(kindRow.hbox.QLayoutItem)
+		kindRow.hbox.DeleteLater()
+	}
+	req.kindRows = req.kindRows[:0]
+
+	// add kinds
+	for _, kind := range filter.Kinds {
+		req.addKind(strconv.Itoa(int(kind)))
+	}
+	req.addKind("") // extra
 
 	// clear all tag items and rows
-	for _, hbox := range req.tagRowHBoxes {
-		for _, item := range req.tagRows[len(req.tagRows)-1] {
+	for _, tagRow := range req.tagRows {
+		tagRow.hbox.RemoveWidget(tagRow.key.QWidget)
+		tagRow.key.QWidget.DeleteLater()
+		tagRow.hbox.RemoveWidget(tagRow.separator.QWidget)
+		tagRow.separator.DeleteLater()
+
+		for _, item := range tagRow.vals {
+			tagRow.hbox.RemoveWidget(item.QWidget)
 			item.DeleteLater()
 		}
-		hbox.DeleteLater()
+		req.tagsLayout.RemoveItem(tagRow.hbox.QLayoutItem)
+		tagRow.hbox.DeleteLater()
 	}
 	req.tagRows = req.tagRows[:0]
-	req.tagRowHBoxes = req.tagRowHBoxes[:0]
 
 	// add tags according to filter
 	for key, values := range filter.Tags {
-		hbox := qt.NewQHBoxLayout2()
-		req.tagRowHBoxes = append(req.tagRowHBoxes, hbox)
-		req.tagsLayout.AddLayout(hbox.QLayout)
-		tagItems := []*qt.QLineEdit{}
-		edit := qt.NewQLineEdit(nil)
-		edit.SetText(key)
-		hbox.AddWidget(edit.QWidget)
-		tagItems = append(tagItems, edit)
-		for _, value := range values {
-			edit := qt.NewQLineEdit(nil)
-			edit.SetText(value)
-			hbox.AddWidget(edit.QWidget)
-			tagItems = append(tagItems, edit)
-		}
-		req.tagRows = append(req.tagRows, tagItems)
+		req.addTagRow(key, values)
 	}
+	req.addTagRow("", []string{""}) // extra
 
 	// set since, until, limit
 	if filter.Since != 0 {
@@ -654,4 +538,164 @@ func (req *reqVars) populate(filter nostr.Filter) {
 	}
 
 	req.updateReq()
+}
+
+func (req *reqVars) addAuthor(value string) {
+	edit := qt.NewQLineEdit(req.tab)
+	edit.SetText(value)
+	req.authorsEdits = append(req.authorsEdits, edit)
+	req.authorsVBox.AddWidget(edit.QWidget)
+	edit.OnTextChanged(func(text string) {
+		if strings.TrimSpace(text) != "" {
+			if edit == req.authorsEdits[len(req.authorsEdits)-1] {
+				req.addAuthor("")
+			}
+		} else {
+			n := len(req.authorsEdits)
+			if n >= 2 && strings.TrimSpace(req.authorsEdits[n-1].Text()) == "" && strings.TrimSpace(req.authorsEdits[n-2].Text()) == "" {
+				req.authorsVBox.RemoveWidget(req.authorsEdits[n-1].QWidget)
+				req.authorsEdits[n-1].DeleteLater()
+				req.authorsEdits = req.authorsEdits[0 : n-1]
+			}
+		}
+		req.updateReq()
+	})
+}
+
+func (req *reqVars) addId(text string) {
+	edit := qt.NewQLineEdit(req.tab)
+	edit.SetText(text)
+	req.idsEdits = append(req.idsEdits, edit)
+	req.idsVBox.AddWidget(edit.QWidget)
+	edit.OnTextChanged(func(text string) {
+		if strings.TrimSpace(text) != "" {
+			if edit == req.idsEdits[len(req.idsEdits)-1] {
+				req.addId("")
+			}
+		} else {
+			n := len(req.idsEdits)
+			if n >= 2 && strings.TrimSpace(req.idsEdits[n-1].Text()) == "" && strings.TrimSpace(req.idsEdits[n-2].Text()) == "" {
+				req.idsVBox.RemoveWidget(req.idsEdits[n-1].QWidget)
+				req.idsEdits[n-1].DeleteLater()
+				req.idsEdits = req.idsEdits[0 : n-1]
+			}
+		}
+		req.updateReq()
+	})
+}
+
+func (req *reqVars) addKind(text string) {
+	hbox := qt.NewQHBoxLayout2()
+	req.kindsVBox.AddLayout(hbox.QLayout)
+	edit := qt.NewQLineEdit(req.tab)
+	edit.SetText(text)
+	hbox.AddWidget(edit.QWidget)
+	label := qt.NewQLabel2()
+	hbox.AddWidget(label.QWidget)
+
+	req.kindRows = append(req.kindRows, reqKindRow{
+		hbox:  hbox,
+		label: label,
+		edit:  edit,
+	})
+
+	edit.OnTextChanged(func(text string) {
+		if strings.TrimSpace(text) != "" {
+			if edit == req.kindRows[len(req.kindRows)-1].edit {
+				req.addKind("")
+			}
+		} else {
+			n := len(req.kindRows)
+			if n >= 2 && strings.TrimSpace(req.kindRows[n-1].edit.Text()) == "" && strings.TrimSpace(req.kindRows[n-2].edit.Text()) == "" {
+				last := req.kindRows[n-1]
+				req.kindsVBox.RemoveItem(last.hbox.QLayoutItem)
+				last.hbox.RemoveWidget(req.kindRows[n-1].edit.QWidget)
+				last.hbox.RemoveWidget(req.kindRows[n-1].label.QWidget)
+				last.edit.DeleteLater()
+				last.label.DeleteLater()
+				last.hbox.DeleteLater()
+				req.kindRows = req.kindRows[:n-1]
+			}
+		}
+		req.updateReq()
+	})
+}
+
+func (req *reqVars) addTagRow(name string, values []string) {
+	hbox := qt.NewQHBoxLayout2()
+	req.tagsLayout.AddLayout(hbox.QLayout)
+	valuesEdits := []*qt.QLineEdit{}
+	y := len(req.tagRows)
+
+	var perhapsDeleteRow func()
+
+	// name
+	editName := qt.NewQLineEdit(req.tab)
+	editName.SetText(name)
+	hbox.AddWidget(editName.QWidget)
+	editName.OnTextChanged(func(text string) {
+		if strings.TrimSpace(text) != "" {
+			if y == len(req.tagRows)-1 {
+				req.addTagRow("", []string{""})
+			}
+		} else {
+			perhapsDeleteRow()
+		}
+		req.updateReq()
+	})
+
+	// separator
+	separator := qt.NewQLabel2()
+	separator.SetText(": ")
+	hbox.AddWidget(separator.QWidget)
+
+	// keep track of everything
+	req.tagRows = append(req.tagRows, reqTagRow{
+		hbox:      hbox,
+		key:       editName,
+		separator: separator,
+	})
+
+	var addValue func(string)
+	addValue = func(val string) {
+		edit := qt.NewQLineEdit(req.tab)
+		edit.SetText(val)
+		hbox.AddWidget(edit.QWidget)
+		x := len(valuesEdits)
+		valuesEdits = append(valuesEdits, edit)
+		req.tagRows[y].vals = valuesEdits
+
+		edit.OnTextChanged(func(text string) {
+			if strings.TrimSpace(text) != "" {
+				if x == len(valuesEdits)-1 {
+					addValue("")
+				}
+			} else {
+				nItems := len(valuesEdits)
+				if nItems >= 2 && strings.TrimSpace(valuesEdits[nItems-1].Text()) == "" && strings.TrimSpace(valuesEdits[nItems-2].Text()) == "" {
+					hbox.RemoveWidget(valuesEdits[nItems-1].QWidget)
+					valuesEdits[nItems-1].DeleteLater()
+					valuesEdits = valuesEdits[0 : nItems-1]
+					req.tagRows[y].vals = valuesEdits
+				}
+
+				perhapsDeleteRow()
+			}
+			req.updateReq()
+		})
+	}
+
+	perhapsDeleteRow = func() {
+		nRows := len(req.tagRows)
+		hasValue := func(e *qt.QLineEdit) bool { return strings.TrimSpace(e.Text()) != "" }
+		if nRows >= 2 && !slices.ContainsFunc(req.tagRows[nRows-1].vals, hasValue) && !slices.ContainsFunc(req.tagRows[nRows-2].vals, hasValue) {
+			req.tagsLayout.RemoveItem(hbox.QLayoutItem)
+			hbox.DeleteLater()
+			req.tagRows = req.tagRows[0 : nRows-1]
+		}
+	}
+
+	for _, val := range values {
+		addValue(val)
+	}
 }

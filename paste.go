@@ -35,7 +35,7 @@ func setupPasteTab() *qt.QWidget {
 
 	// input
 	inputLabel := qt.NewQLabel2()
-	inputLabel.SetText("paste:")
+	inputLabel.SetText("paste an event, nevent, npub, nip05, filter, naddr or other things:")
 	layout.AddWidget(inputLabel.QWidget)
 	paste.inputEdit = qt.NewQTextEdit(tab)
 	layout.AddWidget(paste.inputEdit.QWidget)
