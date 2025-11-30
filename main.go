@@ -50,7 +50,7 @@ func main() {
 	}
 
 	window.SetMinimumSize2(800, 600)
-	window.SetWindowTitle("nakv")
+	window.SetWindowTitle("vnak")
 
 	centralWidget := qt.NewQWidget(window.QWidget)
 	window.SetCentralWidget(centralWidget)

@@ -385,7 +385,7 @@ func (req *reqVars) subscribe() {
 
 		statusLabel.SetText("subscribed to " + niceRelayURL(relay.URL))
 		sub, err := relay.Subscribe(ctx, req.filter, nostr.SubscriptionOptions{
-			Label: "nakv-req-1",
+			Label: "vnak-req-1",
 		})
 		if err != nil {
 			statusLabel.SetText(fmt.Sprintf("failed to subscribe to %s: %s", niceRelayURL(relay.URL), err))
@@ -410,7 +410,7 @@ func (req *reqVars) subscribe() {
 		go func() {
 			for ie := range sys.Pool.SubscribeManyNotifyEOSE(ctx, relays, req.filter, eoseChan,
 				nostr.SubscriptionOptions{
-					Label: "nakv-req",
+					Label: "vnak-req",
 				},
 			) {
 				eventsChan <- ie.Event
