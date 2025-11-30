@@ -1,6 +1,9 @@
 name: build
 
-on: [push]
+on:
+  push:
+    tags:
+      - '*'
 
 jobs:
    build-linux:
@@ -40,20 +43,6 @@ jobs:
      - uses: actions/setup-go@v4
        with:
          go-version: '1.25'
-     - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
-     - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
-     - name: Upload Windows binary
-       uses: actions/upload-artifact@v4
-       with:
-         name: vnak-windows-amd64
-         path: vnak.exe
-   build-mac:
-     runs-on: ubuntu-latest
-     steps:
-     - uses: actions/checkout@v4
-     - uses: actions/setup-go@v4
-       with:
-         go-version: '1.25'
      - id: go-cache-paths
        run: |
          echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
@@ -66,12 +55,30 @@ jobs:
      - name: Go Build Cache
        uses: actions/cache@v4
        with:
-         path: ${{ steps.go-cache-paths.outputs.go-build }}
-         key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+         path: container-build-cache
+         key: ${{ runner.os }}-go-container-build-${{ hashFiles('**/go.sum') }}
      - run: go install github.com/mappu/miqt/cmd/miqt-docker@latest
-     - run: ~/go/bin/miqt-docker macos -build
-     - name: Upload macOS binary
+     - run: ~/go/bin/miqt-docker win64-qt6-static -windows-build --tags=windowsqtstatic
+     - name: Upload Windows binary
        uses: actions/upload-artifact@v4
        with:
-         name: vnak-macos-amd64
-         path: vnak
+         name: vnak-windows-amd64
+         path: vnak.exe
+   release:
+     needs: [build-linux, build-windows]
+     runs-on: ubuntu-latest
+     steps:
+     - uses: actions/download-artifact@v4
+       with:
+         name: vnak-linux-amd64
+     - uses: actions/download-artifact@v4
+       with:
+         name: vnak-windows-amd64
+     - name: Create Release
+       uses: softprops/action-gh-release@v1
+       with:
+         files: |
+           vnak
+           vnak.exe
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
