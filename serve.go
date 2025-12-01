@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	"fiatjaf.com/nostr"
@@ -15,20 +19,11 @@ import (
 	"fiatjaf.com/nostr/khatru"
 	"fiatjaf.com/nostr/khatru/blossom"
 	"fiatjaf.com/nostr/khatru/grasp"
+	"github.com/mailru/easyjson"
 	qt "github.com/mappu/miqt/qt6"
 	"github.com/mappu/miqt/qt6/mainthread"
 	"github.com/puzpuzpuz/xsync/v3"
 )
-
-var version = "dev"
-
-func isPiped() bool {
-	stat, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return (stat.Mode() & os.ModeCharDevice) == 0
-}
 
 type serveVars struct {
 	tab *qt.QWidget
@@ -37,18 +32,28 @@ type serveVars struct {
 	blossomCheck    *qt.QCheckBox
 	negentropyCheck *qt.QCheckBox
 
+	serverAddressInput *qt.QLineEdit
+
 	startButton *qt.QPushButton
 	stopButton  *qt.QPushButton
 
-	logsList   *qt.QListWidget
-	eventsList *qt.QListWidget
+	logsList         *qt.QListWidget
+	eventsList       *qt.QListWidget
+	graspReposList   *serveSpecialBox
+	blossomBlobsList *serveSpecialBox
+
+	bottomHBox *qt.QHBoxLayout
 
 	relay     *khatru.Relay
 	db        *slicestore.SliceStore
 	blobStore *xsync.MapOf[string, []byte]
 	repoDir   string
+}
 
-	running bool
+type serveSpecialBox struct {
+	vbox  *qt.QVBoxLayout
+	list  *qt.QListWidget
+	label *qt.QLabel
 }
 
 var serve = &serveVars{}
@@ -74,6 +79,10 @@ func setupServeTab() *qt.QWidget {
 	serve.blossomCheck.SetText("blossom")
 	optionsHBox.AddWidget(serve.blossomCheck.QWidget)
 
+	serve.serverAddressInput = qt.NewQLineEdit(serve.tab)
+	serve.serverAddressInput.SetReadOnly(true)
+	optionsHBox.AddWidget(serve.serverAddressInput.QWidget)
+
 	// buttons
 	buttonsHBox := qt.NewQHBoxLayout2()
 	layout.AddLayout(buttonsHBox.QLayout)
@@ -93,13 +102,19 @@ func setupServeTab() *qt.QWidget {
 	serve.logsList.SetMinimumHeight(150)
 	layout.AddWidget(serve.logsList.QWidget)
 
-	// events
+	// bottom layout with columns
+	serve.bottomHBox = qt.NewQHBoxLayout2()
+	layout.AddLayout(serve.bottomHBox.QLayout)
+
+	// events column
+	eventsVBox := qt.NewQVBoxLayout2()
 	eventsLabel := qt.NewQLabel2()
 	eventsLabel.SetText("events:")
-	layout.AddWidget(eventsLabel.QWidget)
+	eventsVBox.AddWidget(eventsLabel.QWidget)
 	serve.eventsList = qt.NewQListWidget(serve.tab)
 	serve.eventsList.SetMinimumHeight(200)
-	layout.AddWidget(serve.eventsList.QWidget)
+	eventsVBox.AddWidget(serve.eventsList.QWidget)
+	serve.bottomHBox.AddLayout(eventsVBox.QLayout)
 
 	// double-click events
 	serve.eventsList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
@@ -124,40 +139,61 @@ func setupServeTab() *qt.QWidget {
 		dialog.Exec()
 	})
 
-	serve.startButton.OnClicked(func() {
-		serve.startRelay()
-	})
-
-	serve.stopButton.OnClicked(func() {
-		serve.stopRelay()
-	})
+	serve.startButton.OnClicked(serve.startRelay)
+	serve.stopButton.OnClicked(serve.stopRelay)
 
 	return serve.tab
 }
 
 func (serve *serveVars) startRelay() {
-	if serve.running {
-		return
-	}
-	serve.running = true
 	serve.startButton.SetEnabled(false)
 	serve.stopButton.SetEnabled(true)
+	serve.negentropyCheck.SetEnabled(false)
+	serve.blossomCheck.SetEnabled(false)
+	serve.graspCheck.SetEnabled(false)
 
-	serve.db = &slicestore.SliceStore{}
-	serve.blobStore = xsync.NewMapOf[string, []byte]()
+	// clear blossom and grasp boxes
+	if serve.blossomBlobsList != nil {
+		serve.blossomBlobsList.vbox.RemoveWidget(serve.blossomBlobsList.label.QWidget)
+		serve.blossomBlobsList.label.DeleteLater()
 
-	rl := khatru.NewRelay()
-	serve.relay = rl
+		serve.blossomBlobsList.vbox.RemoveWidget(serve.blossomBlobsList.list.QWidget)
+		serve.blossomBlobsList.list.DeleteLater()
 
-	rl.Info.Name = "nak serve"
-	rl.Info.Description = "a local relay for testing, debugging and development."
-	rl.Info.Software = "https://github.com/fiatjaf/nak"
-	rl.Info.Version = "dev"
+		serve.bottomHBox.RemoveItem(serve.blossomBlobsList.vbox.QLayoutItem)
+		serve.blossomBlobsList.vbox.DeleteLater()
 
-	rl.UseEventstore(serve.db, 500)
+		serve.blossomBlobsList = nil
+	}
+
+	if serve.graspReposList != nil {
+		serve.graspReposList.vbox.RemoveWidget(serve.graspReposList.label.QWidget)
+		serve.graspReposList.label.DeleteLater()
+
+		serve.graspReposList.vbox.RemoveWidget(serve.graspReposList.list.QWidget)
+		serve.graspReposList.list.DeleteLater()
+
+		serve.bottomHBox.RemoveItem(serve.graspReposList.vbox.QLayoutItem)
+		serve.graspReposList.vbox.DeleteLater()
+
+		serve.graspReposList = nil
+	}
+
+	// setup relay
+	if serve.db == nil {
+		serve.db = &slicestore.SliceStore{}
+	}
+
+	serve.relay = khatru.NewRelay()
+	serve.relay.Info.Name = "vnak serve"
+	serve.relay.Info.Description = "a local relay for testing, debugging and development."
+	serve.relay.Info.Software = "https://github.com/fiatjaf/vnak"
+	serve.relay.Info.Version = "dev"
+
+	serve.relay.UseEventstore(serve.db, 500)
 
 	if serve.negentropyCheck.IsChecked() {
-		rl.Negentropy = true
+		serve.relay.Negentropy = true
 	}
 
 	started := make(chan bool)
@@ -167,12 +203,18 @@ func (serve *serveVars) startRelay() {
 	port := 10547
 
 	if serve.blossomCheck.IsChecked() {
-		bs := blossom.New(rl, fmt.Sprintf("http://%s:%d", hostname, port))
+		// setup blossom
+		if serve.blobStore == nil {
+			serve.blobStore = xsync.NewMapOf[string, []byte]()
+		}
+
+		bs := blossom.New(serve.relay, fmt.Sprintf("http://%s:%d", hostname, port))
 		bs.Store = blossom.NewMemoryBlobIndex()
 
 		bs.StoreBlob = func(ctx context.Context, sha256 string, ext string, body []byte) error {
 			serve.blobStore.Store(sha256+ext, body)
 			serve.log("blob stored: %s", sha256+ext)
+			serve.updateBlossomBlobsList()
 			return nil
 		}
 		bs.LoadBlob = func(ctx context.Context, sha256 string, ext string) (io.ReadSeeker, *url.URL, error) {
@@ -185,35 +227,67 @@ func (serve *serveVars) startRelay() {
 		bs.DeleteBlob = func(ctx context.Context, sha256 string, ext string) error {
 			serve.blobStore.Delete(sha256 + ext)
 			serve.log("blob delete: %s", sha256+ext)
+			serve.updateBlossomBlobsList()
 			return nil
 		}
+
+		// display blossom box
+		serve.blossomBlobsList = &serveSpecialBox{
+			vbox:  qt.NewQVBoxLayout2(),
+			label: qt.NewQLabel2(),
+			list:  qt.NewQListWidget(serve.tab),
+		}
+		serve.blossomBlobsList.list.SetMinimumWidth(300)
+		serve.blossomBlobsList.label.SetText("blossom blobs:")
+		serve.blossomBlobsList.vbox.AddWidget(serve.blossomBlobsList.label.QWidget)
+		serve.blossomBlobsList.vbox.AddWidget(serve.blossomBlobsList.list.QWidget)
+		serve.bottomHBox.AddLayout(serve.blossomBlobsList.vbox.QLayout)
+		serve.updateBlossomBlobsList()
 	}
 
 	if serve.graspCheck.IsChecked() {
-		var err error
-		serve.repoDir, err = os.MkdirTemp("", "vnak-serve-grasp-repos-")
-		if err != nil {
-			serve.log("failed to create grasp repos directory: %w", err)
-			return
+		// setup grasp
+		if serve.repoDir == "" {
+			var err error
+			serve.repoDir, err = os.MkdirTemp("", "vnak-serve-grasp-repos-")
+			if err != nil {
+				serve.log("failed to create grasp repos directory: %w", err)
+				return
+			}
 		}
-		g := grasp.New(rl, serve.repoDir)
+		g := grasp.New(serve.relay, serve.repoDir)
 		g.OnRead = func(ctx context.Context, pubkey nostr.PubKey, repo string) (reject bool, reason string) {
 			serve.log("git read by '%s' at '%s'", pubkey.Hex(), repo)
+			serve.updateGraspReposList()
 			return false, ""
 		}
 		g.OnWrite = func(ctx context.Context, pubkey nostr.PubKey, repo string) (reject bool, reason string) {
 			serve.log("git write by '%s' at '%s'", pubkey.Hex(), repo)
+			serve.updateGraspReposList()
 			return false, ""
 		}
+
+		// display grasp vbox
+		serve.graspReposList = &serveSpecialBox{
+			vbox:  qt.NewQVBoxLayout2(),
+			label: qt.NewQLabel2(),
+			list:  qt.NewQListWidget(serve.tab),
+		}
+		serve.graspReposList.list.SetMinimumWidth(300)
+		serve.graspReposList.label.SetText("grasp repos:")
+		serve.graspReposList.vbox.AddWidget(serve.graspReposList.label.QWidget)
+		serve.graspReposList.vbox.AddWidget(serve.graspReposList.list.QWidget)
+		serve.bottomHBox.AddLayout(serve.graspReposList.vbox.QLayout)
+		serve.updateGraspReposList()
 	}
 
 	go func() {
-		err := rl.Start(hostname, port, started)
+		err := serve.relay.Start(hostname, port, started)
 		exited <- err
 	}()
 
 	// relay logging
-	rl.OnRequest = func(ctx context.Context, filter nostr.Filter) (reject bool, msg string) {
+	serve.relay.OnRequest = func(ctx context.Context, filter nostr.Filter) (reject bool, msg string) {
 		negentropy := ""
 		if khatru.IsNegentropySession(ctx) {
 			negentropy = "negentropy "
@@ -223,19 +297,22 @@ func (serve *serveVars) startRelay() {
 		return false, ""
 	}
 
-	rl.OnCount = func(ctx context.Context, filter nostr.Filter) (reject bool, msg string) {
+	serve.relay.OnCount = func(ctx context.Context, filter nostr.Filter) (reject bool, msg string) {
 		serve.log("count request: %s", filter)
 		return false, ""
 	}
 
-	rl.OnEvent = func(ctx context.Context, event nostr.Event) (reject bool, msg string) {
+	serve.relay.OnEvent = func(ctx context.Context, event nostr.Event) (reject bool, msg string) {
 		serve.log("event: %s", event)
-		serve.addEvent(event)
 		return false, ""
 	}
 
+	serve.relay.OnEventSaved = func(ctx context.Context, event nostr.Event) {
+		serve.updateEventsList()
+	}
+
 	totalConnections := atomic.Int32{}
-	rl.OnConnect = func(ctx context.Context) {
+	serve.relay.OnConnect = func(ctx context.Context) {
 		totalConnections.Add(1)
 		go func() {
 			<-ctx.Done()
@@ -245,6 +322,15 @@ func (serve *serveVars) startRelay() {
 
 	<-started
 	serve.log("relay running at %s", fmt.Sprintf("ws://%s:%d", hostname, port))
+	mainthread.Start(func() {
+		serve.serverAddressInput.SetText(fmt.Sprintf("ws://%s:%d", hostname, port))
+		if serve.graspCheck.IsChecked() {
+			serve.updateGraspReposList()
+		}
+		if serve.blossomCheck.IsChecked() {
+			serve.updateBlossomBlobsList()
+		}
+	})
 	if serve.graspCheck.IsChecked() {
 		serve.log("grasp repos at %s", serve.repoDir)
 	}
@@ -255,7 +341,6 @@ func (serve *serveVars) startRelay() {
 			serve.log("relay exited with error: %s", err)
 		}
 		mainthread.Wait(func() {
-			serve.running = false
 			serve.startButton.SetEnabled(true)
 			serve.stopButton.SetEnabled(false)
 		})
@@ -263,31 +348,98 @@ func (serve *serveVars) startRelay() {
 }
 
 func (serve *serveVars) stopRelay() {
-	if !serve.running {
-		return
-	}
 	if serve.relay != nil {
 		serve.relay.Shutdown(ctx)
 	}
-	serve.running = false
 	serve.startButton.SetEnabled(true)
 	serve.stopButton.SetEnabled(false)
-	statusLabel.SetText("relay stopped")
+	serve.negentropyCheck.SetEnabled(true)
+	serve.blossomCheck.SetEnabled(true)
+	serve.graspCheck.SetEnabled(true)
+	serve.serverAddressInput.SetText("")
+	serve.log("relay stopped")
 }
 
 func (serve *serveVars) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	mainthread.Start(func() {
 		item := qt.NewQListWidgetItem2(msg)
+		pos := serve.logsList.VerticalScrollBar().SliderPosition()
 		serve.logsList.InsertItem(0, item)
-		serve.logsList.ScrollToTop()
+		if pos == 0 {
+			serve.logsList.ScrollToTop()
+		}
 	})
 }
 
-func (serve *serveVars) addEvent(event nostr.Event) {
-	jsonBytes, _ := json.Marshal(event)
-	mainthread.Wait(func() {
-		item := qt.NewQListWidgetItem2(string(jsonBytes))
-		serve.eventsList.AddItemWithItem(item)
+func calculateDirSize(path string) int64 {
+	var size int64
+	filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			info, err := d.Info()
+			if err == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	return size
+}
+
+func getHeadCommit(repoPath string) string {
+	cmd := exec.Command("git", "log", "--oneline", "-1")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	if err != nil {
+		return "no commits"
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func (serve *serveVars) updateGraspReposList() {
+	mainthread.Start(func() {
+		serve.graspReposList.list.Clear()
+		if serve.repoDir == "" {
+			return
+		}
+		entries, err := os.ReadDir(serve.repoDir)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			d := entry.Name()
+			repoPath := filepath.Join(serve.repoDir, d)
+			size := calculateDirSize(repoPath)
+			head := getHeadCommit(repoPath)
+			item := qt.NewQListWidgetItem2(fmt.Sprintf("d: %s\npath: %s\nsize: %d bytes\nhead: %s", d, repoPath, size, head))
+			serve.graspReposList.list.AddItemWithItem(item)
+		}
+	})
+}
+
+func (serve *serveVars) updateBlossomBlobsList() {
+	mainthread.Start(func() {
+		serve.blossomBlobsList.list.Clear()
+		for key, value := range serve.blobStore.Range {
+			item := qt.NewQListWidgetItem2(fmt.Sprintf("%s (%d bytes)", key, len(value)))
+			serve.blossomBlobsList.list.AddItemWithItem(item)
+		}
+	})
+}
+
+func (serve *serveVars) updateEventsList() {
+	mainthread.Start(func() {
+		serve.eventsList.Clear()
+		for evt := range serve.db.QueryEvents(nostr.Filter{}, 5000) {
+			evtj, _ := easyjson.Marshal(evt)
+			item := qt.NewQListWidgetItem2(string(evtj))
+			serve.eventsList.AddItemWithItem(item)
+		}
 	})
 }
