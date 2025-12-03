@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -59,15 +60,6 @@ func setupReqTab() *qt.QWidget {
 	layout := qt.NewQVBoxLayout2()
 	req.tab.SetLayout(layout.QLayout)
 
-	// authors
-	authorsLabel := qt.NewQLabel2()
-	authorsLabel.SetText("authors:")
-	layout.AddWidget(authorsLabel.QWidget)
-	req.authorsVBox = qt.NewQVBoxLayout2()
-	layout.AddLayout(req.authorsVBox.QLayout)
-	req.authorsEdits = []*qt.QLineEdit{}
-	req.addAuthor("")
-
 	// ids
 	idsLabel := qt.NewQLabel2()
 	idsLabel.SetText("ids:")
@@ -76,6 +68,15 @@ func setupReqTab() *qt.QWidget {
 	layout.AddLayout(req.idsVBox.QLayout)
 	req.idsEdits = []*qt.QLineEdit{}
 	req.addId("")
+
+	// authors
+	authorsLabel := qt.NewQLabel2()
+	authorsLabel.SetText("authors:")
+	layout.AddWidget(authorsLabel.QWidget)
+	req.authorsVBox = qt.NewQVBoxLayout2()
+	layout.AddLayout(req.authorsVBox.QLayout)
+	req.authorsEdits = []*qt.QLineEdit{}
+	req.addAuthor("")
 
 	// kinds
 	kindsLabel := qt.NewQLabel2()
@@ -95,79 +96,26 @@ func setupReqTab() *qt.QWidget {
 	req.tagRows = make([]reqTagRow, 0, 2)
 	req.addTagRow("", []string{""})
 
-	// since
-	sinceHBox := qt.NewQHBoxLayout2()
-	layout.AddLayout(sinceHBox.QLayout)
-	sinceLabel := qt.NewQLabel2()
-	sinceLabel.SetText("since:")
-	sinceHBox.AddWidget(sinceLabel.QWidget)
-	req.sinceCheck = qt.NewQCheckBox(req.tab)
-	req.sinceCheck.SetChecked(false)
-	sinceHBox.AddWidget(req.sinceCheck.QWidget)
-	req.sinceEdit = qt.NewQDateTimeEdit(req.tab)
-	req.sinceEdit.SetEnabled(false)
-	{
-		qtime := qt.NewQDateTime()
-		qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
-		req.sinceEdit.SetDateTime(qtime)
-	}
-	sinceHBox.AddWidget(req.sinceEdit.QWidget)
-	req.sinceCheck.OnStateChanged(func(state int) {
-		req.sinceEdit.SetEnabled(state == 2) // 2 is checked
-		if state == 2 {
-			qtime := qt.NewQDateTime()
-			qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
-			req.sinceEdit.SetDateTime(qtime)
-		}
-		req.updateReq()
-	})
-	req.sinceEdit.OnDateTimeChanged(func(*qt.QDateTime) {
-		req.updateReq()
-	})
-
-	// until
-	untilHBox := qt.NewQHBoxLayout2()
-	layout.AddLayout(untilHBox.QLayout)
-	untilLabel := qt.NewQLabel2()
-	untilLabel.SetText("until:")
-	untilHBox.AddWidget(untilLabel.QWidget)
-	req.untilCheck = qt.NewQCheckBox(req.tab)
-	req.untilCheck.SetChecked(false)
-	untilHBox.AddWidget(req.untilCheck.QWidget)
-	req.untilEdit = qt.NewQDateTimeEdit(req.tab)
-	req.untilEdit.SetEnabled(false)
-	{
-		qtime := qt.NewQDateTime()
-		qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
-		req.untilEdit.SetDateTime(qtime)
-	}
-	untilHBox.AddWidget(req.untilEdit.QWidget)
-	req.untilCheck.OnStateChanged(func(state int) {
-		req.untilEdit.SetEnabled(state == 2) // 2 is checked
-		if state == 2 {
-			qtime := qt.NewQDateTime()
-			qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
-			req.untilEdit.SetDateTime(qtime)
-		}
-		req.updateReq()
-	})
-	req.untilEdit.OnDateTimeChanged(func(*qt.QDateTime) {
-		req.updateReq()
-	})
+	// numeric and boolean inputs
+	qtime := qt.NewQDateTime()
+	qtime.SetMSecsSinceEpoch(time.Now().UnixMilli())
+	inputsHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(inputsHBox.QLayout)
 
 	// limit
 	limitHBox := qt.NewQHBoxLayout2()
-	layout.AddLayout(limitHBox.QLayout)
+	inputsHBox.AddLayout(limitHBox.QLayout)
 	limitLabel := qt.NewQLabel2()
 	limitLabel.SetText("limit:")
 	limitHBox.AddWidget(limitLabel.QWidget)
 	req.limitCheck = qt.NewQCheckBox(req.tab)
-	req.limitCheck.SetChecked(false)
+	req.limitCheck.SetChecked(true)
 	limitHBox.AddWidget(req.limitCheck.QWidget)
 	req.limitSpin = qt.NewQSpinBox(req.tab)
-	req.limitSpin.SetEnabled(false)
+	req.limitSpin.SetEnabled(true)
 	req.limitSpin.SetMinimum(0)
 	req.limitSpin.SetMaximum(1000)
+	req.limitSpin.SetValue(10)
 	limitHBox.AddWidget(req.limitSpin.QWidget)
 	req.limitCheck.OnStateChanged(func(state int) {
 		req.limitSpin.SetEnabled(state == 2) // 2 is checked
@@ -177,27 +125,73 @@ func setupReqTab() *qt.QWidget {
 		req.updateReq()
 	})
 
+	// since
+	sinceHBox := qt.NewQHBoxLayout2()
+	sinceHBox.AddStretch()
+	inputsHBox.AddLayout(sinceHBox.QLayout)
+	sinceLabel := qt.NewQLabel2()
+	sinceLabel.SetText("since:")
+	sinceHBox.AddWidget(sinceLabel.QWidget)
+	req.sinceCheck = qt.NewQCheckBox(req.tab)
+	req.sinceCheck.SetChecked(false)
+	sinceHBox.AddWidget(req.sinceCheck.QWidget)
+	req.sinceEdit = qt.NewQDateTimeEdit(req.tab)
+	req.sinceEdit.SetEnabled(false)
+	req.sinceEdit.SetDateTime(qtime)
+	sinceHBox.AddWidget(req.sinceEdit.QWidget)
+	req.sinceCheck.OnStateChanged(func(state int) {
+		req.sinceEdit.SetEnabled(state == 2) // 2 is checked
+		req.updateReq()
+	})
+	req.sinceEdit.OnDateTimeChanged(func(*qt.QDateTime) {
+		req.updateReq()
+	})
+
+	// until
+	untilHBox := qt.NewQHBoxLayout2()
+	untilHBox.AddStretch()
+	inputsHBox.AddLayout(untilHBox.QLayout)
+	untilLabel := qt.NewQLabel2()
+	untilLabel.SetText("until:")
+	untilHBox.AddWidget(untilLabel.QWidget)
+	req.untilCheck = qt.NewQCheckBox(req.tab)
+	req.untilCheck.SetChecked(false)
+	untilHBox.AddWidget(req.untilCheck.QWidget)
+	req.untilEdit = qt.NewQDateTimeEdit(req.tab)
+	req.untilEdit.SetEnabled(false)
+	req.untilEdit.SetDateTime(qtime)
+	untilHBox.AddWidget(req.untilEdit.QWidget)
+	req.untilCheck.OnStateChanged(func(state int) {
+		req.untilEdit.SetEnabled(state == 2) // 2 is checked
+		req.updateReq()
+	})
+	req.untilEdit.OnDateTimeChanged(func(*qt.QDateTime) {
+		req.updateReq()
+	})
+
 	// output
+	outputHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(outputHBox.QLayout)
 	outputLabel := qt.NewQLabel2()
 	outputLabel.SetText("filter:")
-	layout.AddWidget(outputLabel.QWidget)
+	outputHBox.AddWidget(outputLabel.QWidget)
 	req.outputEdit = qt.NewQTextEdit(req.tab)
 	req.outputEdit.SetReadOnly(true)
 	req.outputEdit.SetMaximumHeight(100)
-	layout.AddWidget(req.outputEdit.QWidget)
+	outputHBox.AddWidget(req.outputEdit.QWidget)
 
-	// send button
-	buttonHBox := qt.NewQHBoxLayout2()
 	sendButton := qt.NewQPushButton5("send request", req.tab)
-	buttonHBox.AddWidget(sendButton.QWidget)
-	buttonHBox.AddStretch()
+	sendButton.OnClicked(func() {
+		req.subscribe()
+	})
 
 	// relays
-	relaysLabel := qt.NewQLabel2()
-	relaysLabel.SetText("relays:")
-	layout.AddWidget(relaysLabel.QWidget)
 	relaysHBox := qt.NewQHBoxLayout2()
 	layout.AddLayout(relaysHBox.QLayout)
+	relaysLabel := qt.NewQLabel2()
+	relaysLabel.SetText("relays:")
+	relaysHBox.AddWidget(relaysLabel.QWidget)
+
 	req.relaysEdits = []*qt.QLineEdit{}
 	var addRelayEdit func()
 	addRelayEdit = func() {
@@ -224,15 +218,18 @@ func setupReqTab() *qt.QWidget {
 	}
 	addRelayEdit()
 
-	layout.AddLayout(buttonHBox.QLayout)
-
 	// results
+	resultsVBox := qt.NewQVBoxLayout2()
 	resultsLabel := qt.NewQLabel2()
 	resultsLabel.SetText("results:")
-	layout.AddWidget(resultsLabel.QWidget)
 	req.resultsList = qt.NewQListWidget(req.tab)
-	req.resultsList.SetMinimumHeight(200)
-	layout.AddWidget(req.resultsList.QWidget)
+	resultsVBox.AddWidget(resultsLabel.QWidget)
+	resultsVBox.AddWidget(req.resultsList.QWidget)
+
+	subscribeHBox := qt.NewQHBoxLayout2()
+	layout.AddLayout(subscribeHBox.QLayout)
+	subscribeHBox.AddWidget(sendButton.QWidget)
+	subscribeHBox.AddLayout(resultsVBox.QLayout)
 
 	// double-click to show pretty JSON
 	req.resultsList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
@@ -255,10 +252,6 @@ func setupReqTab() *qt.QWidget {
 		closeButton.OnClicked(func() { dialog.Close() })
 		dlayout.AddWidget(closeButton.QWidget)
 		dialog.Exec()
-	})
-
-	sendButton.OnClicked(func() {
-		req.subscribe()
 	})
 
 	return req.tab
@@ -293,6 +286,7 @@ func (req *reqVars) updateReq() {
 	kinds := []nostr.Kind{}
 	for _, kindRow := range req.kindRows {
 		text := strings.TrimSpace(kindRow.edit.Text())
+		kindRow.label.SetText("")
 		if k, err := strconv.Atoi(text); err == nil {
 			kind := nostr.Kind(k)
 			kinds = append(kinds, kind)
@@ -301,8 +295,6 @@ func (req *reqVars) updateReq() {
 			name := kind.Name()
 			if name != "unknown" {
 				kindRow.label.SetText(name)
-			} else {
-				kindRow.label.SetText("")
 			}
 		}
 	}
@@ -381,6 +373,16 @@ func (req *reqVars) subscribe() {
 		if err != nil {
 			statusLabel.SetText(fmt.Sprintf("failed to connect to %s: %s", niceRelayURL(relays[0]), err))
 			return
+		}
+
+		if currentKeyer != nil {
+			err = relay.Auth(ctx, func(ctx context.Context, evt *nostr.Event) error {
+				return currentKeyer.SignEvent(ctx, evt)
+			})
+			if err != nil {
+				statusLabel.SetText(fmt.Sprintf("failed to auth to %s: %s", niceRelayURL(relay.URL), err))
+				return
+			}
 		}
 
 		statusLabel.SetText("subscribed to " + niceRelayURL(relay.URL))
@@ -515,7 +517,7 @@ func (req *reqVars) populate(filter nostr.Filter) {
 		dt.SetMSecsSinceEpoch(int64(filter.Since) * 1000)
 		req.sinceEdit.SetDateTime(dt)
 	} else {
-		req.sinceCheck.SetChecked(false)
+		req.sinceCheck.SetChecked(true)
 	}
 
 	if filter.Until != 0 {
@@ -672,9 +674,13 @@ func (req *reqVars) addTagRow(name string, values []string) {
 				}
 			} else {
 				nItems := len(valuesEdits)
-				if nItems >= 2 && strings.TrimSpace(valuesEdits[nItems-1].Text()) == "" && strings.TrimSpace(valuesEdits[nItems-2].Text()) == "" {
-					hbox.RemoveWidget(valuesEdits[nItems-1].QWidget)
-					valuesEdits[nItems-1].DeleteLater()
+				if nItems >= 2 &&
+					strings.TrimSpace(valuesEdits[nItems-1].Text()) == "" &&
+					strings.TrimSpace(valuesEdits[nItems-2].Text()) == "" {
+					// when the last values of a tag row are empty remove the last one
+					last := valuesEdits[nItems-1]
+					hbox.RemoveWidget(last.QWidget)
+					last.DeleteLater()
 					valuesEdits = valuesEdits[0 : nItems-1]
 					req.tagRows[y].vals = valuesEdits
 				}
@@ -688,9 +694,23 @@ func (req *reqVars) addTagRow(name string, values []string) {
 	perhapsDeleteRow = func() {
 		nRows := len(req.tagRows)
 		hasValue := func(e *qt.QLineEdit) bool { return strings.TrimSpace(e.Text()) != "" }
-		if nRows >= 2 && !slices.ContainsFunc(req.tagRows[nRows-1].vals, hasValue) && !slices.ContainsFunc(req.tagRows[nRows-2].vals, hasValue) {
-			req.tagsLayout.RemoveItem(hbox.QLayoutItem)
-			hbox.DeleteLater()
+		if nRows >= 2 &&
+			!slices.ContainsFunc(req.tagRows[nRows-1].vals, hasValue) &&
+			!slices.ContainsFunc(req.tagRows[nRows-2].vals, hasValue) &&
+			strings.TrimSpace(req.tagRows[nRows-1].key.Text()) == "" &&
+			strings.TrimSpace(req.tagRows[nRows-2].key.Text()) == "" {
+			// when the two last rows are completely empty remove the last one:
+			last := req.tagRows[nRows-1]
+			last.hbox.RemoveWidget(last.separator.QWidget)
+			last.separator.DeleteLater()
+			last.hbox.RemoveWidget(last.key.QWidget)
+			last.key.DeleteLater()
+			for _, val := range last.vals {
+				last.hbox.RemoveWidget(val.QWidget)
+				val.DeleteLater()
+			}
+
+			req.tagsLayout.RemoveItem(last.hbox.QLayoutItem)
 			req.tagRows = req.tagRows[0 : nRows-1]
 		}
 	}
