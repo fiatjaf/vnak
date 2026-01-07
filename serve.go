@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"fiatjaf.com/nostr"
 	"fiatjaf.com/nostr/eventstore/slicestore"
@@ -108,9 +110,17 @@ func setupServeTab() *qt.QWidget {
 
 	// events column
 	eventsVBox := qt.NewQVBoxLayout2()
+	eventsHBox := qt.NewQHBoxLayout2()
+	eventsVBox.AddLayout(eventsHBox.QLayout)
+
 	eventsLabel := qt.NewQLabel2()
 	eventsLabel.SetText("events:")
-	eventsVBox.AddWidget(eventsLabel.QWidget)
+	eventsHBox.AddWidget(eventsLabel.QWidget)
+
+	loadEventsButton := qt.NewQPushButton5("load events", serve.tab)
+	loadEventsButton.OnClicked(serve.loadEventsFromFile)
+	eventsHBox.AddWidget(loadEventsButton.QWidget)
+
 	serve.eventsList = qt.NewQListWidget(serve.tab)
 	serve.eventsList.SetMinimumHeight(200)
 	eventsVBox.AddWidget(serve.eventsList.QWidget)
@@ -362,10 +372,10 @@ func (serve *serveVars) stopRelay() {
 
 func (serve *serveVars) log(format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
+	timestamp := time.Now().Format("15:04:05")
 	mainthread.Start(func() {
-		item := qt.NewQListWidgetItem2(msg)
 		pos := serve.logsList.VerticalScrollBar().SliderPosition()
-		serve.logsList.InsertItem(0, item)
+		serve.logsList.InsertItem(0, qt.NewQListWidgetItem2(fmt.Sprintf("%s %s", timestamp, msg)))
 		if pos == 0 {
 			serve.logsList.ScrollToTop()
 		}
@@ -431,6 +441,71 @@ func (serve *serveVars) updateBlossomBlobsList() {
 			serve.blossomBlobsList.list.AddItemWithItem(item)
 		}
 	})
+}
+
+func (serve *serveVars) loadEventsFromFile() {
+	if serve.db == nil {
+		serve.log("relay not started")
+		return
+	}
+
+	dialog := qt.NewQFileDialog(serve.tab)
+	dialog.SetFileMode(qt.QFileDialog__ExistingFile)
+	dialog.SetNameFilter("JSONL Files (*.jsonl);;All Files (*)")
+
+	if dialog.Exec() == 0 {
+		return
+	}
+
+	filePaths := dialog.SelectedFiles()
+	if len(filePaths) == 0 {
+		return
+	}
+
+	filePath := filePaths[0]
+
+	go func() {
+		file, err := os.Open(filePath)
+		if err != nil {
+			serve.log("failed to open file: %v", err)
+			return
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		lineNum := 0
+		loaded := 0
+
+		for scanner.Scan() {
+			lineNum++
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" {
+				continue
+			}
+
+			var event nostr.Event
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				serve.log("failed to parse line %d: %v", lineNum, err)
+				continue
+			}
+
+			if serve.relay != nil {
+				if _, err := serve.relay.AddEvent(context.Background(), event); err != nil {
+					serve.log("failed to save event from line %d: %v", lineNum, err)
+					continue
+				}
+			}
+
+			loaded++
+		}
+
+		if err := scanner.Err(); err != nil {
+			serve.log("error reading file: %v", err)
+		}
+
+		serve.log("loaded %d events from %s", loaded, filePath)
+		serve.updateEventsList()
+	}()
 }
 
 func (serve *serveVars) updateEventsList() {

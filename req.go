@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +25,7 @@ type reqVars struct {
 	tagsVBox     *qt.QVBoxLayout
 	tagRows      []reqTagRow
 	tagsLayout   *qt.QVBoxLayout
+	relaysHBox   *qt.QHBoxLayout
 	relaysEdits  []*qt.QLineEdit
 	sinceEdit    *qt.QDateTimeEdit
 	sinceCheck   *qt.QCheckBox
@@ -54,6 +54,29 @@ type reqTagRow struct {
 }
 
 var req = &reqVars{}
+
+func (req *reqVars) addRelayEdit() {
+	edit := qt.NewQLineEdit(req.tab)
+	req.relaysEdits = append(req.relaysEdits, edit)
+	req.relaysHBox.AddWidget(edit.QWidget)
+	edit.OnTextChanged(func(text string) {
+		if strings.TrimSpace(text) != "" {
+			if edit == req.relaysEdits[len(req.relaysEdits)-1] {
+				req.addRelayEdit()
+			}
+		} else {
+			n := len(req.relaysEdits)
+			if n >= 2 && strings.TrimSpace(req.relaysEdits[n-1].Text()) == "" && strings.TrimSpace(req.relaysEdits[n-2].Text()) == "" {
+				req.relaysHBox.RemoveWidget(req.relaysEdits[n-1].QWidget)
+				req.relaysEdits[n-1].DeleteLater()
+				req.relaysEdits = req.relaysEdits[0 : n-1]
+			}
+		}
+	})
+	edit.OnReturnPressed(func() {
+		req.subscribe()
+	})
+}
 
 func setupReqTab() *qt.QWidget {
 	req.tab = qt.NewQWidget(window.QWidget)
@@ -181,42 +204,18 @@ func setupReqTab() *qt.QWidget {
 	outputHBox.AddWidget(req.outputEdit.QWidget)
 
 	sendButton := qt.NewQPushButton5("send request", req.tab)
-	sendButton.OnClicked(func() {
-		req.subscribe()
-	})
+	sendButton.OnClicked(req.subscribe)
 
 	// relays
 	relaysHBox := qt.NewQHBoxLayout2()
+	req.relaysHBox = relaysHBox
 	layout.AddLayout(relaysHBox.QLayout)
 	relaysLabel := qt.NewQLabel2()
 	relaysLabel.SetText("relays:")
 	relaysHBox.AddWidget(relaysLabel.QWidget)
 
 	req.relaysEdits = []*qt.QLineEdit{}
-	var addRelayEdit func()
-	addRelayEdit = func() {
-		edit := qt.NewQLineEdit(req.tab)
-		req.relaysEdits = append(req.relaysEdits, edit)
-		relaysHBox.AddWidget(edit.QWidget)
-		edit.OnTextChanged(func(text string) {
-			if strings.TrimSpace(text) != "" {
-				if edit == req.relaysEdits[len(req.relaysEdits)-1] {
-					addRelayEdit()
-				}
-			} else {
-				n := len(req.relaysEdits)
-				if n >= 2 && strings.TrimSpace(req.relaysEdits[n-1].Text()) == "" && strings.TrimSpace(req.relaysEdits[n-2].Text()) == "" {
-					relaysHBox.RemoveWidget(req.relaysEdits[n-1].QWidget)
-					req.relaysEdits[n-1].DeleteLater()
-					req.relaysEdits = req.relaysEdits[0 : n-1]
-				}
-			}
-		})
-		edit.OnReturnPressed(func() {
-			sendButton.Click()
-		})
-	}
-	addRelayEdit()
+	req.addRelayEdit()
 
 	// results
 	resultsVBox := qt.NewQVBoxLayout2()
@@ -233,11 +232,11 @@ func setupReqTab() *qt.QWidget {
 
 	// double-click to show pretty JSON
 	req.resultsList.OnItemDoubleClicked(func(item *qt.QListWidgetItem) {
-		var event nostr.Event
-		if err := json.Unmarshal([]byte(item.Text()), &event); err != nil {
+		var evt nostr.Event
+		if err := json.Unmarshal([]byte(item.Text()), &evt); err != nil {
 			return
 		}
-		pretty, _ := json.MarshalIndent(event, "", "  ")
+		pretty, _ := json.MarshalIndent(evt, "", "  ")
 		dialog := qt.NewQDialog(window.QWidget)
 		dialog.SetWindowTitle("event")
 		dialog.SetMinimumWidth(400)
@@ -248,9 +247,31 @@ func setupReqTab() *qt.QWidget {
 		textEdit.SetReadOnly(true)
 		textEdit.SetPlainText(string(pretty))
 		dlayout.AddWidget(textEdit.QWidget)
+
+		// buttons
+		buttonsHBox := qt.NewQHBoxLayout2()
+		dlayout.AddLayout(buttonsHBox.QLayout)
+
+		editButton := qt.NewQPushButton5("➡️ edit", dialog.QWidget)
+		editButton.OnClicked(func() {
+			paste.inputEdit.SetPlainText(string(pretty))
+			tabWidget.SetCurrentIndex(tabs.paste)
+			dialog.Close()
+		})
+		buttonsHBox.AddWidget(editButton.QWidget)
+
+		publishButton := qt.NewQPushButton5("➡️ publish", dialog.QWidget)
+		publishButton.OnClicked(func() {
+			event.populate(evt)
+			tabWidget.SetCurrentIndex(tabs.event)
+			dialog.Close()
+		})
+		buttonsHBox.AddWidget(publishButton.QWidget)
+
 		closeButton := qt.NewQPushButton5("close", dialog.QWidget)
 		closeButton.OnClicked(func() { dialog.Close() })
-		dlayout.AddWidget(closeButton.QWidget)
+		buttonsHBox.AddWidget(closeButton.QWidget)
+
 		dialog.Exec()
 	})
 
@@ -267,6 +288,7 @@ func (req *reqVars) updateReq() {
 			authors = append(authors, pk)
 		}
 	}
+
 	if len(authors) > 0 {
 		req.filter.Authors = authors
 	}
@@ -360,7 +382,7 @@ func (req *reqVars) subscribe() {
 		}
 	}
 	if len(relays) == 0 {
-		statusLabel.SetText("no relays specified")
+		setStatus(tabs.req, "no relays specified")
 		return
 	}
 
@@ -371,7 +393,7 @@ func (req *reqVars) subscribe() {
 	if len(relays) == 1 {
 		relay, err := sys.Pool.EnsureRelay(relays[0])
 		if err != nil {
-			statusLabel.SetText(fmt.Sprintf("failed to connect to %s: %s", niceRelayURL(relays[0]), err))
+			setStatus(tabs.req, "failed to connect to %s: %s", niceRelayURL(relays[0]), err)
 			return
 		}
 
@@ -380,17 +402,17 @@ func (req *reqVars) subscribe() {
 				return currentKeyer.SignEvent(ctx, evt)
 			})
 			if err != nil {
-				statusLabel.SetText(fmt.Sprintf("failed to auth to %s: %s", niceRelayURL(relay.URL), err))
+				setStatus(tabs.req, "failed to auth to %s: %s", niceRelayURL(relay.URL), err)
 				return
 			}
 		}
 
-		statusLabel.SetText("subscribed to " + niceRelayURL(relay.URL))
+		setStatus(tabs.req, "subscribed to "+niceRelayURL(relay.URL))
 		sub, err := relay.Subscribe(ctx, req.filter, nostr.SubscriptionOptions{
 			Label: "vnak-req-1",
 		})
 		if err != nil {
-			statusLabel.SetText(fmt.Sprintf("failed to subscribe to %s: %s", niceRelayURL(relay.URL), err))
+			setStatus(tabs.req, "failed to subscribe to %s: %s", niceRelayURL(relay.URL), err)
 			return
 		}
 
@@ -401,11 +423,11 @@ func (req *reqVars) subscribe() {
 			reason := <-sub.ClosedReason
 			time.Sleep(time.Second)
 			mainthread.Wait(func() {
-				statusLabel.SetText(fmt.Sprintf("subscription closed: %s", reason))
+				setStatus(tabs.req, "subscription closed: %s", reason)
 			})
 		}()
 	} else {
-		statusLabel.SetText("subscribed to " + strings.Join(niceRelayURLs(relays), ", "))
+		setStatus(tabs.req, "subscribed to "+strings.Join(niceRelayURLs(relays), ", "))
 		eoseChan = make(chan struct{})
 		eventsChan = make(chan nostr.Event)
 
@@ -435,7 +457,7 @@ func (req *reqVars) subscribe() {
 				}
 			})
 		}
-		statusLabel.SetText("subscription ended")
+		setStatus(tabs.req, "subscription ended")
 	}()
 
 	go func() {
@@ -444,7 +466,7 @@ func (req *reqVars) subscribe() {
 	}()
 }
 
-func (req *reqVars) populate(filter nostr.Filter) {
+func (req *reqVars) populate(filter nostr.Filter, relays []string) {
 	// clear all authors except the first, set the first to ""
 	for _, authorEdit := range req.authorsEdits {
 		req.authorsVBox.RemoveWidget(authorEdit.QWidget)
@@ -538,6 +560,18 @@ func (req *reqVars) populate(filter nostr.Filter) {
 	} else {
 		req.limitCheck.SetChecked(false)
 	}
+
+	// set relays
+	for _, relayEdit := range req.relaysEdits {
+		req.relaysHBox.RemoveWidget(relayEdit.QWidget)
+		relayEdit.DeleteLater()
+	}
+	req.relaysEdits = req.relaysEdits[:0]
+	for _, relay := range relays {
+		req.addRelayEdit()
+		req.relaysEdits[len(req.relaysEdits)-1].SetText(relay)
+	}
+	req.addRelayEdit() // extra empty
 
 	req.updateReq()
 }

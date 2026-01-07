@@ -236,11 +236,34 @@ func (p *pasteVars) displayEventPointer(ep nostr.EventPointer) {
 		p.outputVBox.AddWidget(authorEdit.QWidget)
 	}
 	p.displayRelays(ep.Relays)
+
+	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button.OnClicked(func() {
+		filter := nostr.Filter{
+			IDs: []nostr.ID{ep.ID},
+		}
+		if ep.Author != nostr.ZeroPK {
+			filter.Authors = []nostr.PubKey{ep.Author}
+		}
+		req.populate(filter, ep.Relays)
+		tabWidget.SetCurrentIndex(tabs.req)
+	})
+	p.outputVBox.AddWidget(button.QWidget)
 }
 
 func (p *pasteVars) displayProfilePointer(pp nostr.ProfilePointer) {
 	p.displayPubKey(pp.PublicKey)
 	p.displayRelays(pp.Relays)
+
+	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button.OnClicked(func() {
+		filter := nostr.Filter{
+			Authors: []nostr.PubKey{pp.PublicKey},
+		}
+		req.populate(filter, pp.Relays)
+		tabWidget.SetCurrentIndex(tabs.req)
+	})
+	p.outputVBox.AddWidget(button.QWidget)
 }
 
 func (p *pasteVars) displayRelays(relays []string) {
@@ -283,6 +306,18 @@ func (p *pasteVars) displayAddressPointer(ap nostr.EntityPointer) {
 	p.outputVBox.AddWidget(identifierEdit.QWidget)
 
 	p.displayRelays(ap.Relays)
+
+	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button.OnClicked(func() {
+		filter := nostr.Filter{
+			Kinds:   []nostr.Kind{ap.Kind},
+			Authors: []nostr.PubKey{ap.PublicKey},
+			Tags:    map[string][]string{"d": []string{ap.Identifier}},
+		}
+		req.populate(filter, ap.Relays)
+		tabWidget.SetCurrentIndex(tabs.req)
+	})
+	p.outputVBox.AddWidget(button.QWidget)
 }
 
 func (p *pasteVars) displayNip05(identifier string) {
@@ -328,7 +363,7 @@ func (p *pasteVars) displayEventButton(evt nostr.Event) {
 	button.OnClicked(func() {
 		event.populate(evt)
 		// switch to event tab
-		tabWidget.SetCurrentIndex(tabIndexes.event)
+		tabWidget.SetCurrentIndex(tabs.event)
 	})
 	p.outputVBox.AddWidget(button.QWidget)
 }
@@ -336,9 +371,9 @@ func (p *pasteVars) displayEventButton(evt nostr.Event) {
 func (p *pasteVars) displayFilterButton(filter nostr.Filter) {
 	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
 	button.OnClicked(func() {
-		req.populate(filter)
+		req.populate(filter, []string{})
 		// switch to req tab
-		tabWidget.SetCurrentIndex(tabIndexes.req)
+		tabWidget.SetCurrentIndex(tabs.req)
 	})
 	p.outputVBox.AddWidget(button.QWidget)
 }

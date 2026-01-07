@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,4 +116,23 @@ func niceRelayURLs(urls []string) []string {
 		nices[i] = strings.SplitN(nostr.NormalizeURL(url), "/", 3)[2]
 	}
 	return nices
+}
+
+func randString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
+		time.Sleep(1 * time.Nanosecond) // ensure different values
+	}
+	return string(b)
+}
+
+func appendUnique[T comparable](slice []T, items ...T) []T {
+	for _, item := range items {
+		if !slices.Contains(slice, item) {
+			slice = append(slice, item)
+		}
+	}
+	return slice
 }

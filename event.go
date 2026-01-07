@@ -94,7 +94,7 @@ func setupEventTab() *qt.QWidget {
 	copyButton := qt.NewQPushButton5("➡️", event.tab)
 	outputHBox.AddWidget(copyButton.QWidget)
 	copyButton.OnClicked(func() {
-		tabWidget.SetCurrentIndex(tabIndexes.paste)
+		tabWidget.SetCurrentIndex(tabs.paste)
 		paste.inputEdit.SetPlainText(event.outputEdit.ToPlainText())
 	})
 
@@ -153,7 +153,7 @@ func setupEventTab() *qt.QWidget {
 
 	sendButton.OnClicked(func() {
 		if event.currentEvent == nil {
-			statusLabel.SetText("no event to publish")
+			setStatus(tabs.event, "no event to publish")
 			return
 		}
 
@@ -166,7 +166,7 @@ func setupEventTab() *qt.QWidget {
 			}
 		}
 		if len(relays) == 0 {
-			statusLabel.SetText("no relays specified")
+			setStatus(tabs.event, "no relays specified")
 			return
 		}
 
@@ -304,7 +304,7 @@ func (event *eventVars) updateEvent() {
 				if err := currentKeyer.SignEvent(ctx, &result); err == nil {
 					finalize()
 				} else {
-					statusLabel.SetText("failed to sign: " + err.Error())
+					setStatus(tabs.event, "failed to sign: "+err.Error())
 				}
 			}
 		}

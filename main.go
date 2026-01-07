@@ -23,15 +23,19 @@ var (
 	window    *qt.QMainWindow
 	tabWidget *qt.QTabWidget
 
+	keyChanged   func(string)
+	secEdit      *qt.QLineEdit
 	currentSec   nostr.SecretKey
 	currentKeyer nostr.Keyer
-	tabIndexes   struct {
-		event int
-		req   int
-		paste int
-		serve int
+
+	tabs struct {
+		event  int
+		req    int
+		paste  int
+		serve  int
+		bunker int
+		build  int
 	}
-	statusLabel *qt.QLabel
 
 	debounced = debouncer.New(950 * time.Millisecond)
 	sys       = sdk.NewSystem()
@@ -92,7 +96,7 @@ func main() {
 
 	secHBox := qt.NewQHBoxLayout2()
 	mainLayout.AddLayout(secHBox.QLayout)
-	secEdit := qt.NewQLineEdit(centralWidget)
+	secEdit = qt.NewQLineEdit(centralWidget)
 	secHBox.AddWidget(secEdit.QWidget)
 	generateButton := qt.NewQPushButton5("generate", centralWidget)
 	secHBox.AddWidget(generateButton.QWidget)
@@ -109,7 +113,7 @@ func main() {
 	secPasswordEdit := qt.NewQLineEdit(passwordWidget)
 	secPasswordEdit.SetEchoMode(qt.QLineEdit__Password)
 	passwordHBox.AddWidget(secPasswordEdit.QWidget)
-	keyChanged := func(text string) {
+	keyChanged = func(text string) {
 		text = strings.TrimSpace(text)
 
 		var sk nostr.SecretKey
@@ -168,33 +172,48 @@ func main() {
 	})
 
 	tabWidget = qt.NewQTabWidget(centralWidget)
+	tabWidget.OnCurrentChanged(func(index int) {
+		maybeSetStatusOnTab(index)
+	})
 
 	eventTab := setupEventTab()
 	reqTab := setupReqTab()
 	pasteTab := setupPasteTab()
 	serveTab := setupServeTab()
+	bunkerTab := setupBunkerTab()
+	buildTab := setupBuildTab()
 
 	tabWidget.AddTab(eventTab, "event")
-	tabIndexes.event = 0
+	tabs.event = 0
 
 	tabWidget.AddTab(reqTab, "req")
-	tabIndexes.req = 1
+	tabs.req = 1
 
 	tabWidget.AddTab(pasteTab, "paste")
-	tabIndexes.paste = 2
+	tabs.paste = 2
 
 	tabWidget.AddTab(serveTab, "serve")
-	tabIndexes.serve = 3
+	tabs.serve = 3
+
+	tabWidget.AddTab(bunkerTab, "bunker")
+	tabs.bunker = 4
+
+	tabWidget.AddTab(buildTab, "build")
+	tabs.build = 5
 
 	switch *initialTab {
 	case "event":
-		tabWidget.SetCurrentIndex(tabIndexes.event)
+		tabWidget.SetCurrentIndex(tabs.event)
 	case "req":
-		tabWidget.SetCurrentIndex(tabIndexes.req)
+		tabWidget.SetCurrentIndex(tabs.req)
 	case "paste":
-		tabWidget.SetCurrentIndex(tabIndexes.paste)
+		tabWidget.SetCurrentIndex(tabs.paste)
 	case "serve":
-		tabWidget.SetCurrentIndex(tabIndexes.serve)
+		tabWidget.SetCurrentIndex(tabs.serve)
+	case "bunker":
+		tabWidget.SetCurrentIndex(tabs.bunker)
+	case "build":
+		tabWidget.SetCurrentIndex(tabs.build)
 	default:
 		tabWidget.SetCurrentIndex(0)
 	}
