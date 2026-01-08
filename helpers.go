@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	"fiatjaf.com/nostr/nip19"
 	"fiatjaf.com/nostr/nip46"
 )
+
+var manualCancel = errors.New("canceled")
 
 func handleSecretKeyOrBunker(sec string) (nostr.SecretKey, nostr.Keyer, error) {
 	if strings.HasPrefix(sec, "bunker://") {
@@ -121,9 +125,10 @@ func niceRelayURLs(urls []string) []string {
 func randString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, n)
+	randomBytes := make([]byte, n)
+	rand.Read(randomBytes)
 	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
-		time.Sleep(1 * time.Nanosecond) // ensure different values
+		b[i] = letters[int(randomBytes[i])%len(letters)]
 	}
 	return string(b)
 }

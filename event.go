@@ -337,8 +337,8 @@ func (event *eventVars) populate(evt nostr.Event) {
 
 	// tags
 	// clear all tag items and rows
-	for _, hbox := range event.tagRowHBoxes {
-		for _, item := range event.tagRows[len(event.tagRows)-1] {
+	for i, hbox := range event.tagRowHBoxes {
+		for _, item := range event.tagRows[i] {
 			hbox.RemoveWidget(item.QWidget)
 			item.DeleteLater()
 		}

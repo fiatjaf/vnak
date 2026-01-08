@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"fiatjaf.com/nostr"
@@ -38,6 +39,8 @@ type reqVars struct {
 
 	outputEdit  *qt.QTextEdit
 	resultsList *qt.QListWidget
+
+	subCancel context.CancelCauseFunc
 }
 
 type reqKindRow struct {
@@ -252,7 +255,7 @@ func setupReqTab() *qt.QWidget {
 		buttonsHBox := qt.NewQHBoxLayout2()
 		dlayout.AddLayout(buttonsHBox.QLayout)
 
-		editButton := qt.NewQPushButton5("➡️ edit", dialog.QWidget)
+		editButton := qt.NewQPushButton5("➡️ paste", dialog.QWidget)
 		editButton.OnClicked(func() {
 			paste.inputEdit.SetPlainText(string(pretty))
 			tabWidget.SetCurrentIndex(tabs.paste)
@@ -260,7 +263,7 @@ func setupReqTab() *qt.QWidget {
 		})
 		buttonsHBox.AddWidget(editButton.QWidget)
 
-		publishButton := qt.NewQPushButton5("➡️ publish", dialog.QWidget)
+		publishButton := qt.NewQPushButton5("➡️ event", dialog.QWidget)
 		publishButton.OnClicked(func() {
 			event.populate(evt)
 			tabWidget.SetCurrentIndex(tabs.event)
@@ -373,6 +376,10 @@ func (req *reqVars) updateReq() {
 }
 
 func (req *reqVars) subscribe() {
+	if req.subCancel != nil {
+		req.subCancel(manualCancel)
+	}
+
 	// collect relays
 	relays := []string{}
 	for _, edit := range req.relaysEdits {
@@ -388,23 +395,15 @@ func (req *reqVars) subscribe() {
 
 	// subscribe
 	var eoseChan chan struct{}
-	var eventsChan chan nostr.Event
+	var eventsChan chan nostr.RelayEvent
+	ctx, cancel := context.WithCancelCause(ctx)
+	req.subCancel = cancel
 
 	if len(relays) == 1 {
 		relay, err := sys.Pool.EnsureRelay(relays[0])
 		if err != nil {
 			setStatus(tabs.req, "failed to connect to %s: %s", niceRelayURL(relays[0]), err)
 			return
-		}
-
-		if currentKeyer != nil {
-			err = relay.Auth(ctx, func(ctx context.Context, evt *nostr.Event) error {
-				return currentKeyer.SignEvent(ctx, evt)
-			})
-			if err != nil {
-				setStatus(tabs.req, "failed to auth to %s: %s", niceRelayURL(relay.URL), err)
-				return
-			}
 		}
 
 		setStatus(tabs.req, "subscribed to "+niceRelayURL(relay.URL))
@@ -416,7 +415,16 @@ func (req *reqVars) subscribe() {
 			return
 		}
 
-		eventsChan = sub.Events
+		eventsChan := make(chan nostr.RelayEvent)
+		go func() {
+			for event := range sub.Events {
+				eventsChan <- nostr.RelayEvent{
+					Event: event,
+					Relay: relay,
+				}
+			}
+		}()
+
 		eoseChan = sub.EndOfStoredEvents
 
 		go func() {
@@ -428,29 +436,18 @@ func (req *reqVars) subscribe() {
 		}()
 	} else {
 		setStatus(tabs.req, "subscribed to "+strings.Join(niceRelayURLs(relays), ", "))
-		eoseChan = make(chan struct{})
-		eventsChan = make(chan nostr.Event)
-
-		go func() {
-			for ie := range sys.Pool.SubscribeManyNotifyEOSE(ctx, relays, req.filter, eoseChan,
-				nostr.SubscriptionOptions{
-					Label: "vnak-req",
-				},
-			) {
-				eventsChan <- ie.Event
-			}
-		}()
+		eventsChan, eoseChan = sys.Pool.SubscribeManyNotifyEOSE(ctx, relays, req.filter, nostr.SubscriptionOptions{Label: "vnak-req"})
 	}
 
 	// collect events
-	eosed := false
+	var eosed atomic.Bool
 	go func() {
-		for event := range eventsChan {
-			jsonBytes, _ := json.Marshal(event)
+		for ie := range eventsChan {
+			jsonBytes, _ := json.Marshal(ie.Event)
 			mainthread.Wait(func() {
 				item := qt.NewQListWidgetItem2(string(jsonBytes))
 
-				if eosed {
+				if eosed.Load() {
 					req.resultsList.InsertItem(0, item)
 				} else {
 					req.resultsList.AddItemWithItem(item)
@@ -462,7 +459,7 @@ func (req *reqVars) subscribe() {
 
 	go func() {
 		<-eoseChan
-		eosed = true
+		eosed.Store(true)
 	}()
 }
 
@@ -539,7 +536,7 @@ func (req *reqVars) populate(filter nostr.Filter, relays []string) {
 		dt.SetMSecsSinceEpoch(int64(filter.Since) * 1000)
 		req.sinceEdit.SetDateTime(dt)
 	} else {
-		req.sinceCheck.SetChecked(true)
+		req.sinceCheck.SetChecked(false)
 	}
 
 	if filter.Until != 0 {
@@ -567,11 +564,10 @@ func (req *reqVars) populate(filter nostr.Filter, relays []string) {
 		relayEdit.DeleteLater()
 	}
 	req.relaysEdits = req.relaysEdits[:0]
-	for _, relay := range relays {
+	for i, relay := range relays {
 		req.addRelayEdit()
-		req.relaysEdits[len(req.relaysEdits)-1].SetText(relay)
+		req.relaysEdits[i].SetText(relay)
 	}
-	req.addRelayEdit() // extra empty
 
 	req.updateReq()
 }

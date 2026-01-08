@@ -335,7 +335,10 @@ func (p *pasteVars) displayNip05(identifier string) {
 	paste.nip05ctxCancel = cancel
 	defer cancel()
 	pp, err := nip05.QueryIdentifier(nip05ctx, identifier)
-	if err != nil && err != paste.nip05ctxAbort {
+	if err != nil {
+		if err == paste.nip05ctxAbort || context.Cause(nip05ctx) == paste.nip05ctxAbort {
+			return
+		}
 		mainthread.Wait(func() {
 			errorLabel := qt.NewQLabel2()
 			errorLabel.SetText("failed to query nip05: " + err.Error())

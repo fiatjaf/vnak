@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"flag"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -51,23 +50,16 @@ func main() {
 	// nostr setup
 	httpHeader := http.Header{}
 	httpHeader.Set("User-Agent", "vnak")
+
 	sys.Pool = nostr.NewPool(nostr.PoolOptions{
 		AuthorKindQueryMiddleware: sys.TrackQueryAttempts,
 		EventMiddleware:           sys.TrackEventHintsAndRelays,
 		DuplicateMiddleware:       sys.TrackEventRelaysD,
 		PenaltyBox:                false,
-		AuthHandler: func(ctx context.Context, evt *nostr.Event) error {
-			if currentKeyer != nil {
-				err := currentKeyer.SignEvent(ctx, evt)
-				if err != nil {
-					return fmt.Errorf("failed to sign auth event: %w", err)
-				}
-				return nil
-			}
-			return fmt.Errorf("can't sign auth event, no key")
-		},
+		AuthRequiredHandler:       signAuthEvent,
 		RelayOptions: nostr.RelayOptions{
 			RequestHeader: httpHeader,
+			AuthHandler:   signAuthEvent,
 		},
 	})
 
