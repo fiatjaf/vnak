@@ -16,6 +16,8 @@ import (
 	"fiatjaf.com/nostr/nip46"
 )
 
+const ARROW = "➡️"
+
 var manualCancel = errors.New("canceled")
 
 func handleSecretKeyOrBunker(sec string) (nostr.SecretKey, nostr.Keyer, error) {

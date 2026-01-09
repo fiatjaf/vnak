@@ -91,7 +91,7 @@ func setupEventTab() *qt.QWidget {
 	event.outputEdit = qt.NewQTextEdit(event.tab)
 	event.outputEdit.SetReadOnly(true)
 	outputHBox.AddWidget(event.outputEdit.QWidget)
-	copyButton := qt.NewQPushButton5("➡️", event.tab)
+	copyButton := qt.NewQPushButton5(ARROW, event.tab)
 	outputHBox.AddWidget(copyButton.QWidget)
 	copyButton.OnClicked(func() {
 		tabWidget.SetCurrentIndex(tabs.paste)

@@ -237,7 +237,7 @@ func (p *pasteVars) displayEventPointer(ep nostr.EventPointer) {
 	}
 	p.displayRelays(ep.Relays)
 
-	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button := qt.NewQPushButton5("filter "+ARROW, window.QWidget)
 	button.OnClicked(func() {
 		filter := nostr.Filter{
 			IDs: []nostr.ID{ep.ID},
@@ -255,7 +255,7 @@ func (p *pasteVars) displayProfilePointer(pp nostr.ProfilePointer) {
 	p.displayPubKey(pp.PublicKey)
 	p.displayRelays(pp.Relays)
 
-	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button := qt.NewQPushButton5("filter "+ARROW, window.QWidget)
 	button.OnClicked(func() {
 		filter := nostr.Filter{
 			Authors: []nostr.PubKey{pp.PublicKey},
@@ -307,12 +307,12 @@ func (p *pasteVars) displayAddressPointer(ap nostr.EntityPointer) {
 
 	p.displayRelays(ap.Relays)
 
-	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button := qt.NewQPushButton5("filter "+ARROW, window.QWidget)
 	button.OnClicked(func() {
 		filter := nostr.Filter{
 			Kinds:   []nostr.Kind{ap.Kind},
 			Authors: []nostr.PubKey{ap.PublicKey},
-			Tags:    map[string][]string{"d": []string{ap.Identifier}},
+			Tags:    map[string][]string{"d": {ap.Identifier}},
 		}
 		req.populate(filter, ap.Relays)
 		tabWidget.SetCurrentIndex(tabs.req)
@@ -362,7 +362,7 @@ func (p *pasteVars) displayNip05(identifier string) {
 }
 
 func (p *pasteVars) displayEventButton(evt nostr.Event) {
-	button := qt.NewQPushButton5("event ➡️", window.QWidget)
+	button := qt.NewQPushButton5("event "+ARROW, window.QWidget)
 	button.OnClicked(func() {
 		event.populate(evt)
 		// switch to event tab
@@ -372,7 +372,7 @@ func (p *pasteVars) displayEventButton(evt nostr.Event) {
 }
 
 func (p *pasteVars) displayFilterButton(filter nostr.Filter) {
-	button := qt.NewQPushButton5("filter ➡️", window.QWidget)
+	button := qt.NewQPushButton5("filter "+ARROW, window.QWidget)
 	button.OnClicked(func() {
 		req.populate(filter, []string{})
 		// switch to req tab

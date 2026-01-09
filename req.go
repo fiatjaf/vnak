@@ -261,7 +261,7 @@ func setupReqTab() *qt.QWidget {
 		buttonsHBox := qt.NewQHBoxLayout2()
 		dlayout.AddLayout(buttonsHBox.QLayout)
 
-		editButton := qt.NewQPushButton5("➡️ paste", dialog.QWidget)
+		editButton := qt.NewQPushButton5(ARROW+" paste", dialog.QWidget)
 		editButton.OnClicked(func() {
 			paste.inputEdit.SetPlainText(string(pretty))
 			tabWidget.SetCurrentIndex(tabs.paste)
@@ -269,7 +269,7 @@ func setupReqTab() *qt.QWidget {
 		})
 		buttonsHBox.AddWidget(editButton.QWidget)
 
-		publishButton := qt.NewQPushButton5("➡️ event", dialog.QWidget)
+		publishButton := qt.NewQPushButton5(ARROW+" event", dialog.QWidget)
 		publishButton.OnClicked(func() {
 			event.populate(evt)
 			tabWidget.SetCurrentIndex(tabs.event)
