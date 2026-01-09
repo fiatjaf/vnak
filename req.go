@@ -206,8 +206,13 @@ func setupReqTab() *qt.QWidget {
 	req.outputEdit.SetMaximumHeight(100)
 	outputHBox.AddWidget(req.outputEdit.QWidget)
 
+	// TODO: make sendButton be disabled if while we have no relays
 	sendButton := qt.NewQPushButton5("send request", req.tab)
 	sendButton.OnClicked(req.subscribe)
+
+	// TODO: add button for stopping the subscription (disabled if no subscription is in course -- check subCancel variable)
+	// TODO: add button for clearing the results box
+	// TODO: add button for exporting the events in the results box as a .jsonl file (open file dialog to let user choose where to save)
 
 	// relays
 	relaysHBox := qt.NewQHBoxLayout2()
@@ -225,6 +230,7 @@ func setupReqTab() *qt.QWidget {
 	resultsLabel := qt.NewQLabel2()
 	resultsLabel.SetText("results:")
 	req.resultsList = qt.NewQListWidget(req.tab)
+	// TODO: make resultsList display items in monospace
 	resultsVBox.AddWidget(resultsLabel.QWidget)
 	resultsVBox.AddWidget(req.resultsList.QWidget)
 
@@ -375,10 +381,15 @@ func (req *reqVars) updateReq() {
 	req.outputEdit.SetPlainText(string(jsonBytes))
 }
 
-func (req *reqVars) subscribe() {
+func (req *reqVars) cancelSubscription() {
 	if req.subCancel != nil {
 		req.subCancel(manualCancel)
+		req.subCancel = nil
 	}
+}
+
+func (req *reqVars) subscribe() {
+	req.cancelSubscription()
 
 	// collect relays
 	relays := []string{}
@@ -415,7 +426,7 @@ func (req *reqVars) subscribe() {
 			return
 		}
 
-		eventsChan := make(chan nostr.RelayEvent)
+		eventsChan = make(chan nostr.RelayEvent)
 		go func() {
 			for event := range sub.Events {
 				eventsChan <- nostr.RelayEvent{
@@ -429,7 +440,7 @@ func (req *reqVars) subscribe() {
 
 		go func() {
 			reason := <-sub.ClosedReason
-			time.Sleep(time.Second)
+			req.subCancel = nil
 			mainthread.Wait(func() {
 				setStatus(tabs.req, "subscription closed: %s", reason)
 			})
@@ -454,6 +465,7 @@ func (req *reqVars) subscribe() {
 				}
 			})
 		}
+		req.subCancel = nil
 		setStatus(tabs.req, "subscription ended")
 	}()
 

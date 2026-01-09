@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"fiatjaf.com/nostr/nip49"
 	"fiatjaf.com/nostr/sdk"
 	qt "github.com/mappu/miqt/qt6"
+	"github.com/mappu/miqt/qt6/mainthread"
 )
 
 var (
@@ -105,54 +107,60 @@ func main() {
 	secPasswordEdit := qt.NewQLineEdit(passwordWidget)
 	secPasswordEdit.SetEchoMode(qt.QLineEdit__Password)
 	passwordHBox.AddWidget(secPasswordEdit.QWidget)
-	keyChanged = func(text string) {
-		text = strings.TrimSpace(text)
+	keyChanged = func(_ string) {
+		debounced.Call(func() {
+			mainthread.Start(func() {
+				text := strings.TrimSpace(secEdit.Text())
 
-		var sk nostr.SecretKey
-		var keyer nostr.Keyer
-		var err error
+				var sk nostr.SecretKey
+				var keyer nostr.Keyer
+				var err error
 
-		if text == "" {
-			passwordWidget.SetVisible(false)
-			goto empty
-		}
-
-		if strings.HasPrefix(text, "ncryptsec1") {
-			passwordWidget.SetVisible(true)
-			password := secPasswordEdit.Text()
-			if password != "" {
-				sk, err = nip49.Decrypt(text, password)
-				if err != nil {
-					statusLabel.SetText("decryption failed: " + err.Error())
-					goto empty
+				if text == "" {
+					passwordWidget.SetVisible(false)
+					currentSec = nostr.SecretKey{}
+					currentKeyer = nil
+					statusLabel.SetText("")
 				}
-				text = hex.EncodeToString(sk[:])
-			} else {
-				goto empty
-			}
-		} else {
-			passwordWidget.SetVisible(false)
-		}
 
-		sk, keyer, err = handleSecretKeyOrBunker(text)
-		if err != nil {
-			statusLabel.SetText(err.Error())
-			currentSec = nostr.SecretKey{}
-			currentKeyer = nil
-			return
-		}
+				if strings.HasPrefix(text, "ncryptsec1") {
+					passwordWidget.SetVisible(true)
+					password := secPasswordEdit.Text()
+					if password != "" {
+						sk, err = nip49.Decrypt(text, password)
+						if err == nil {
+							statusLabel.SetText(fmt.Sprintf("secret key decrypted, pubkey: " + sk.Public().Hex()))
+						} else {
+							currentSec = nostr.SecretKey{}
+							currentKeyer = nil
+							statusLabel.SetText("decryption failed: " + err.Error())
+							return
+						}
+						text = hex.EncodeToString(sk[:])
+					} else {
+						currentSec = nostr.SecretKey{}
+						currentKeyer = nil
+						statusLabel.SetText("")
+						return
+					}
+				} else {
+					passwordWidget.SetVisible(false)
+				}
 
-		currentSec = sk
-		currentKeyer = keyer
-		statusLabel.SetText("")
-		event.updateEvent()
-		return
+				sk, keyer, err = handleSecretKeyOrBunker(text)
+				if err != nil {
+					statusLabel.SetText(err.Error())
+					currentSec = nostr.SecretKey{}
+					currentKeyer = nil
+					return
+				}
 
-	empty:
-		currentSec = nostr.SecretKey{}
-		currentKeyer = nil
-		statusLabel.SetText("")
-		return
+				currentSec = sk
+				currentKeyer = keyer
+				event.updateEvent()
+				return
+			})
+		})
 	}
 	secEdit.OnTextChanged(keyChanged)
 	secPasswordEdit.OnTextChanged(keyChanged)

@@ -100,7 +100,9 @@ func setupEventTab() *qt.QWidget {
 
 	// send button
 	buttonHBox := qt.NewQHBoxLayout2()
-	sendButton := qt.NewQPushButton5("send request", event.tab)
+
+	// TODO: make sendButton be disabled if while we have no relays
+	sendButton := qt.NewQPushButton5("publish event", event.tab)
 	buttonHBox.AddWidget(sendButton.QWidget)
 	buttonHBox.AddStretch()
 

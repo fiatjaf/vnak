@@ -171,8 +171,8 @@ func setupBunkerTab() *qt.QWidget {
 func (b *bunkerVars) loadProfile() {
 	fileDialog := qt.NewQFileDialog(window.QWidget)
 	fileDialog.SetFileMode(qt.QFileDialog__ExistingFile)
-	fileDialog.SetNameFilter("JSON files (*.json)")
 	fileDialog.SetWindowTitle("select bunker profile")
+	fileDialog.SetAcceptDrops(true)
 
 	if fileDialog.Exec() == int(qt.QDialog__Accepted) {
 		selectedFiles := fileDialog.SelectedFiles()
@@ -401,11 +401,11 @@ func (bunker *bunkerVars) stopBunker() {
 }
 
 func (bunker *bunkerVars) updateBunkerURI() {
-	if bunker.config.Secret.Plain == nil {
+	if currentSec == [32]byte{} {
 		return
 	}
 
-	pubkey := bunker.config.Secret.Plain.Public()
+	pubkey := currentSec.Public()
 	qs := url.Values{}
 	for _, relay := range bunker.relays {
 		qs.Add("relay", relay.URL)
