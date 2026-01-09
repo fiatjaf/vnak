@@ -333,7 +333,7 @@ func (bunker *bunkerVars) startBunker() {
 			return true
 		}
 
-		authorized := slices.Contains(bunker.config.AuthorizedKeys, from) || slices.Contains([]string{}, secret) // TODO: authorized secrets
+		authorized := slices.Contains(bunker.config.AuthorizedKeys, from) || slices.Contains([]string{}, secret)
 		if authorized {
 			if harmless {
 				bunker.log("harmless request from %s", from.Hex())
