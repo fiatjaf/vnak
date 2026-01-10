@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"fiatjaf.com/nostr"
 	"fiatjaf.com/nostr/schema"
 	qt "github.com/mappu/miqt/qt6"
 	"github.com/mappu/miqt/qt6/mainthread"
+	"github.com/sahilm/fuzzy"
 )
 
 type buildVars struct {
@@ -33,6 +36,11 @@ type buildVars struct {
 	contentLabel *qt.QLabel
 }
 
+type listFuzzySource struct{ *qt.QListWidget }
+
+func (l listFuzzySource) String(i int) string { return strings.ToLower(l.Item(i).Text()) }
+func (l listFuzzySource) Len() int            { return l.Count() }
+
 type kindItem struct {
 	kind uint16
 	schema.KindSchema
@@ -48,6 +56,7 @@ type tagSection struct {
 	rowsBox    *qt.QVBoxLayout
 	rows       []*qt.QHBoxLayout
 	edits      [][]*qt.QLineEdit
+	bool       *qt.QCheckBox
 }
 
 var build = &buildVars{}
@@ -75,11 +84,23 @@ func setupBuildTab() *qt.QWidget {
 	// filter list items as user types
 	searchInput.OnTextChanged(func(text string) {
 		filterText := strings.ToLower(text)
-		for i := 0; i < build.kindsList.Count(); i++ {
-			item := build.kindsList.Item(i)
-			itemText := strings.ToLower(item.Text())
-			// TODO: instead of strings.Contains() use levenshtein distance fuzz matching
-			build.kindsList.SetRowHidden(i, !strings.Contains(itemText, filterText))
+		matches := fuzzy.FindFrom(filterText, listFuzzySource{build.kindsList})
+
+		if filterText == "" {
+			// show all
+			for i := 0; i < build.kindsList.Count(); i++ {
+				build.kindsList.SetRowHidden(i, false)
+			}
+		} else {
+			// hide all
+			for i := 0; i < build.kindsList.Count(); i++ {
+				build.kindsList.SetRowHidden(i, true)
+			}
+
+			// except the matched
+			for _, match := range matches {
+				build.kindsList.SetRowHidden(match.Index, false)
+			}
 		}
 	})
 
@@ -115,16 +136,64 @@ func setupBuildTab() *qt.QWidget {
 	continueButton.OnClicked(func() {
 		eventBuilt := build.buildEvent()
 
-		// TODO: check for missing tags in event
+		// check for missing required tags
 		missing := []string{}
-		if len(missing) > 0 {
-			setStatus(tabs.build, "missing required tags: %s", strings.Join(missing, ", "))
-			return
+		for _, ts := range build.tagSections {
+			if ts.isRequired {
+				tagName := strings.TrimSuffix(
+					strings.SplitN(ts.label.Text(), " ", 2)[0],
+					":",
+				)
+
+				hasValidTag := false
+				if ts.isBoolean {
+					hasValidTag = ts.bool != nil && ts.bool.CheckState() == qt.Checked
+				} else {
+					for _, edits := range ts.edits {
+						hasValidValue := false
+						for _, edit := range edits {
+							if strings.TrimSpace(edit.Text()) != "" {
+								hasValidValue = true
+								break
+							}
+						}
+						if hasValidValue {
+							hasValidTag = true
+							break
+						}
+					}
+				}
+
+				if !hasValidTag {
+					missing = append(missing, tagName)
+				}
+			}
 		}
 
-		// TODO: check each tag to see if it has all the necessary items and they match each of the types
-		// ('constrained', 'url', 'relay', 'id', 'addr', 'pubkey', 'timestamp', 'kind', 'giturl'. 'json', 'hex')
-		// ...
+		if len(missing) > 0 {
+			// show validation failure alert
+			msgBox := qt.NewQMessageBox2()
+			msgBox.SetWindowTitle("validation failed")
+			msgBox.SetText(fmt.Sprintf("missing required tags: %s", strings.Join(missing, ", ")))
+			msgBox.SetInformativeText("you can continue to manual event editing or cancel to fix the issues.")
+			msgBox.SetStandardButtons(qt.QMessageBox__Ok | qt.QMessageBox__Cancel)
+			if msgBox.Exec() == int(qt.QMessageBox__Cancel) {
+				return
+			}
+		}
+
+		// check each tag to see if it has all the necessary items and they match each of the types
+		validationErrors := build.validateTags()
+		if len(validationErrors) > 0 {
+			msgBox := qt.NewQMessageBox2()
+			msgBox.SetWindowTitle("tag validation errors")
+			msgBox.SetText(strings.Join(validationErrors, "\n"))
+			msgBox.SetInformativeText("you can continue to manual event editing or cancel to fix the issues")
+			msgBox.SetStandardButtons(qt.QMessageBox__Ok | qt.QMessageBox__Cancel)
+			if msgBox.Exec() == int(qt.QMessageBox__Cancel) {
+				return
+			}
+		}
 
 		event.populate(eventBuilt)
 		tabWidget.SetCurrentIndex(tabs.event)
@@ -137,7 +206,7 @@ func setupBuildTab() *qt.QWidget {
 	go func() {
 		sch, err := schema.FetchSchemaFromURL("https://raw.githubusercontent.com/nostr-protocol/registry-of-kinds/refs/heads/master/schema.yaml")
 		if err != nil {
-			fmt.Println("error loading schema:", err)
+			fmt.Fprintf(os.Stderr, "error loading schema:", err)
 			mainthread.Wait(func() {
 				setStatus(tabs.build, "error loading schema: %s", err)
 			})
@@ -172,6 +241,17 @@ func setupBuildTab() *qt.QWidget {
 
 					// show description
 					build.descLabel.SetText(item.Description)
+
+					// all addressable events need a 'd' tag
+					if nostr.Kind(kindItem.kind).IsAddressable() {
+						build.addTag(&schema.TagSpec{
+							Name: "d",
+							Next: &schema.ContentSpec{
+								Type:     "free",
+								Required: true,
+							},
+						}, true, false)
+					}
 
 					// generate tag inputs based on schema
 					for _, tagSpec := range item.Tags {
@@ -227,23 +307,27 @@ func (b *buildVars) addTag(tagSpec *schema.TagSpec, required bool, isMultiple bo
 		vbox := qt.NewQVBoxLayout2()
 		ts.rowsBox = vbox
 		ts.sectionBox.AddLayout(vbox.Layout())
-		build.addTagRow(0, ts, tagSpec)
+		build.addTagRow(ts, tagSpec, 0)
+	} else {
+		// boolean tag - add checkbox
+		ts.bool = qt.NewQCheckBox2()
+		ts.sectionBox.AddWidget(ts.bool.QWidget)
 	}
 }
 
 var (
-	gitURLRegex = regexp.MustCompile(`^(git@[\w.-]+:[\w./-]+(\.git)?|https?://[\w.-]+/[\w./-]+(\.git)?)$`)
+	gitURLRegex = regexp.MustCompile(`^(git@[\w.-]+:[\w./-]+(\.git)?|(https?|git|ssh)://[\w.-]+/[\w./-]+(\.git)?)$`)
 	addrRegex   = regexp.MustCompile(`^\d+:[0-9a-fA-F]{64}:.+$`)
 	dateRegex   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
 
-func validateTagInput(text string, inputType string, either []string) bool {
+func validateTagInput(text string, spec *schema.ContentSpec) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return true // empty is always valid (required check is separate)
 	}
 
-	switch inputType {
+	switch spec.Type {
 	case "free":
 		return true
 
@@ -252,7 +336,7 @@ func validateTagInput(text string, inputType string, either []string) bool {
 		return err == nil && n >= 0
 
 	case "constrained":
-		return slices.Contains(either, text)
+		return slices.Contains(spec.Either, text)
 
 	case "hex":
 		_, err := hex.DecodeString(text)
@@ -297,70 +381,97 @@ func validateTagInput(text string, inputType string, either []string) bool {
 	}
 }
 
-func (b *buildVars) addTagRow(i int, ts *tagSection, tagSpec *schema.TagSpec) {
+func (b *buildVars) addTagRow(ts *tagSection, tagSpec *schema.TagSpec, rowIdx int) {
 	hbox := qt.NewQHBoxLayout2()
 	ts.rowsBox.AddLayout(hbox.QLayout)
 	ts.rows = append(ts.rows, hbox)
 	ts.edits = append(ts.edits, make([]*qt.QLineEdit, 0, 3))
 
-	for curr := tagSpec.Next; curr != nil; curr = curr.Next {
-		// input for the tag value
-		edit := qt.NewQLineEdit(b.tab)
-		switch curr.Type {
-		case "constrained":
-			edit.SetPlaceholderText("\"" + strings.Join(curr.Either, "\" or \"") + "\"")
-		default:
-			edit.SetPlaceholderText(curr.Type)
+	if ts.isBoolean {
+		// TODO: in this case only add one field: a checkbox, save it to ts.bool
+	} else {
+		itemIdx := 0
+		for curr := tagSpec.Next; curr != nil; curr = curr.Next {
+			b.addInput(ts, tagSpec, rowIdx, hbox, curr, itemIdx)
+			itemIdx++
 		}
-		hbox.AddWidget(edit.QWidget)
-		ts.edits[i] = append(ts.edits[i], edit)
+	}
+}
 
-		inputType := curr.Type
-		eitherValues := curr.Either
+func (b *buildVars) addInput(
+	ts *tagSection,
+	tagSpec *schema.TagSpec,
+	rowIdx int,
+	row *qt.QHBoxLayout,
+	itemSpec *schema.ContentSpec,
+	itemIdx int,
+) {
+	// input for the tag value
+	edit := qt.NewQLineEdit(b.tab)
+	configureInputForType(edit, itemSpec)
 
-		edit.OnTextChanged(func(text string) {
-			// validation
-			if validateTagInput(text, inputType, eitherValues) {
-				edit.SetStyleSheet("")
-			} else {
-				edit.SetStyleSheet("border: 1px solid red;")
+	row.AddWidget(edit.QWidget)
+	ts.edits[rowIdx] = append(ts.edits[rowIdx], edit)
+
+	edit.OnTextChanged(func(text string) {
+		if !ts.isMultiple {
+			return
+		}
+
+		if strings.TrimSpace(text) != "" {
+			// if this is the last row and it has content and this tag accepts multiple values and add a new row
+			if rowIdx == ts.rowsBox.Count()-1 {
+				b.addTagRow(ts, tagSpec, rowIdx+1)
 			}
-
-			if !ts.isMultiple {
-				return
-			}
-
-			if strings.TrimSpace(text) != "" {
-				// if this is the last row and it has content and this tag accepts multiple values and add a new row
-				if i == len(ts.rowsBox.Children())-1 {
-					b.addTagRow(i+1, ts, tagSpec)
-				}
-			} else {
-				// now if this is the second to last row and the last row and it is fully empty we remove the last
-				if len(ts.rows) >= 2 && i == len(ts.rows)-2 {
-					shouldDelete := true
-					// if all inputs are empty in the last two rows we will delete
-				deletecheck:
-					for r := len(ts.rows) - 2; r < len(ts.edits); r++ {
-						for _, edit := range ts.edits[r] {
-							if strings.TrimSpace(edit.Text()) != "" {
-								shouldDelete = false
-								break deletecheck
-							}
+		} else {
+			// now if this is the second to last row and the last row and it is fully empty we remove the last
+			if len(ts.rows) >= 2 && rowIdx == len(ts.rows)-2 {
+				shouldDelete := true
+				// if all inputs are empty in the last two rows we will delete
+			deletecheck:
+				for r := len(ts.rows) - 2; r < len(ts.edits); r++ {
+					for _, edit := range ts.edits[r] {
+						if strings.TrimSpace(edit.Text()) != "" {
+							shouldDelete = false
+							break deletecheck
 						}
 					}
+				}
 
-					if shouldDelete {
-						last := ts.rows[len(ts.rows)-1]
-						for _, edit := range ts.edits[len(ts.rows)-1] {
-							last.RemoveWidget(edit.QWidget)
-							edit.DeleteLater()
-						}
-						ts.edits = ts.edits[0 : len(ts.edits)-1]
+				if shouldDelete {
+					last := ts.rows[len(ts.rows)-1]
+					for _, edit := range ts.edits[len(ts.rows)-1] {
+						last.RemoveWidget(edit.QWidget)
+						edit.DeleteLater()
+					}
+					ts.edits = ts.edits[0 : len(ts.edits)-1]
 
-						ts.rowsBox.RemoveItem(last.QLayoutItem)
-						last.DeleteLater()
-						ts.rows = ts.rows[0 : len(ts.rows)-1]
+					ts.rowsBox.RemoveItem(last.QLayoutItem)
+					last.DeleteLater()
+					ts.rows = ts.rows[0 : len(ts.rows)-1]
+				}
+			}
+		}
+	})
+
+	if itemSpec.Variadic {
+		// variadic field - add dynamic add/remove functionality
+		edit.OnTextChanged(func(text string) {
+			if strings.TrimSpace(text) != "" {
+				// if this is the last edit and has content, add a new one
+				lastRowIdx := len(ts.edits) - 1
+				lastEditIdx := len(ts.edits[lastRowIdx]) - 1
+				if itemIdx == lastEditIdx {
+					b.addInput(ts, tagSpec, rowIdx, row, itemSpec, itemIdx+1)
+				}
+			} else {
+				// if this is second to last and the last one is empty delete the last
+				if itemIdx == len(ts.edits[rowIdx])-2 {
+					if strings.TrimSpace(ts.edits[rowIdx][itemIdx+1].Text()) == "" {
+						edit := ts.edits[rowIdx][itemIdx+1]
+						row.RemoveWidget(edit.QWidget)
+						edit.DeleteLater()
+						ts.edits[rowIdx] = ts.edits[rowIdx][:itemIdx+1]
 					}
 				}
 			}
@@ -385,26 +496,89 @@ func (b *buildVars) buildEvent() nostr.Event {
 			":",
 		)
 
-		for e, edits := range ts.edits {
-			tag := make(nostr.Tag, 1, 4)
-			tag[0] = tagName
-
-			hasValue := false
-			for _, edit := range edits {
-				value := strings.TrimSpace(edit.Text())
-				tag = append(tag, value)
-				if value != "" {
-					hasValue = true
-				}
+		if ts.isBoolean {
+			if ts.bool.CheckState() == qt.Checked {
+				base.Tags = append(base.Tags, nostr.Tag{tagName})
 			}
+		} else {
+			for e, edits := range ts.edits {
+				tag := make(nostr.Tag, 1, 4)
+				tag[0] = tagName
 
-			if ts.isBoolean || (ts.isRequired && e == 0) || hasValue {
-				base.Tags = append(base.Tags, tag)
+				hasValue := false
+				for _, edit := range edits {
+					value := strings.TrimSpace(edit.Text())
+					tag = append(tag, value)
+					if value != "" {
+						hasValue = true
+					}
+				}
+
+				if ts.isBoolean || (ts.isRequired && e == 0) || hasValue {
+					base.Tags = append(base.Tags, tag)
+				}
 			}
 		}
 	}
 
 	return base
+}
+
+func (b *buildVars) validateTags() []string {
+	var errors []string
+
+	for _, ts := range b.tagSections {
+		tagName := strings.TrimSuffix(
+			strings.SplitN(ts.label.Text(), " ", 2)[0],
+			":",
+		)
+
+		if ts.isBoolean {
+			// boolean tags don't need type validation
+			continue
+		}
+
+		for rowIdx, edits := range ts.edits {
+			for itemIdx, edit := range edits {
+				text := strings.TrimSpace(edit.Text())
+				if text == "" {
+					continue // skip empty fields
+				}
+
+				// find the tag spec for this tag
+				for _, tagSpec := range b.selected.Tags {
+					// try only tags with matching names, of course
+					if tagSpec.Name != tagName {
+						continue
+					}
+
+					// navigate to the correct position in the spec
+					curr := tagSpec.Next
+					for range itemIdx {
+						if curr.Variadic {
+							// if we reach a variadic that's the end of it, all edits further on will be of this type
+							break
+						}
+
+						if curr.Next == nil {
+							// this should only happen when we are the last iteration step anyway,
+							// but let's exit here instead of crashing
+							break
+						}
+
+						curr = curr.Next
+					}
+
+					// validate against expected type
+					if !validateTagInput(text, curr) {
+						errors = append(errors, fmt.Sprintf("%s[%d][%d]: invalid value for type '%s'", tagName, rowIdx, itemIdx, curr.Type))
+					}
+				}
+			}
+		}
+	}
+
+	return errors
 }
 
 func (b *buildVars) clearForm() {
@@ -413,15 +587,21 @@ func (b *buildVars) clearForm() {
 		ts.sectionBox.RemoveWidget(ts.label.QWidget)
 		ts.label.DeleteLater()
 
-		for r, row := range ts.rows {
-			for _, edit := range ts.edits[r] {
-				row.RemoveWidget(edit.QWidget)
-				edit.DeleteLater()
+		if ts.isBoolean {
+			ts.sectionBox.RemoveWidget(ts.bool.QWidget)
+			ts.bool.DeleteLater()
+		} else {
+			for r, row := range ts.rows {
+				for _, edit := range ts.edits[r] {
+					row.RemoveWidget(edit.QWidget)
+					edit.DeleteLater()
+				}
+				ts.rowsBox.RemoveItem(row.QLayoutItem)
+				row.DeleteLater()
 			}
-			ts.rowsBox.RemoveItem(row.QLayoutItem)
-			row.DeleteLater()
+			ts.sectionBox.RemoveItem(ts.rowsBox.QLayoutItem)
+			ts.rowsBox.DeleteLater()
 		}
-		ts.rowsBox.DeleteLater()
 
 		b.formLayout.RemoveItem(ts.sectionBox.QLayoutItem)
 		ts.sectionBox.DeleteLater()
@@ -430,4 +610,43 @@ func (b *buildVars) clearForm() {
 
 	// but keep the content just in case
 	// b.contentEdit.SetPlainText("")
+}
+
+func configureInputForType(edit *qt.QLineEdit, spec *schema.ContentSpec) {
+	switch spec.Type {
+	case "constrained":
+		edit.SetPlaceholderText("\"" + strings.Join(spec.Either, "\" or \"") + "\"")
+	case "pubkey":
+		edit.SetPlaceholderText("pubkey: npub1... (hex or npub)")
+	case "url":
+		edit.SetPlaceholderText("url: https://example.com")
+	case "relay":
+		edit.SetPlaceholderText("relay url: wss://relay.example.com")
+	case "event":
+		edit.SetPlaceholderText("event id: nevent1... (hex or nevent)")
+	case "hex":
+		edit.SetPlaceholderText("hex: 0a1b2c3d...")
+	case "timestamp":
+		edit.SetPlaceholderText("unix timestamp: " + strconv.Itoa(int(nostr.Now())))
+	case "kind":
+		edit.SetPlaceholderText("kind: 1")
+	case "addr":
+		edit.SetPlaceholderText("address: <kind>:<hex-pubkey>:<identifier>")
+	case "date":
+		edit.SetPlaceholderText("date: " + time.Now().Format(time.DateOnly))
+	case "giturl":
+		edit.SetPlaceholderText("git url: https://gitserver.com/repo.git")
+	case "json":
+		edit.SetPlaceholderText("json: {\"key\": \"value\"}")
+	default:
+		edit.SetPlaceholderText(spec.Type)
+	}
+
+	edit.OnTextChanged(func(text string) {
+		if validateTagInput(text, spec) {
+			edit.SetStyleSheet("")
+		} else {
+			edit.SetStyleSheet("border: 1px solid red;")
+		}
+	})
 }
