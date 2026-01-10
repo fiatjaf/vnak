@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -45,6 +47,65 @@ var (
 	debug      = flag.Bool("debug", false, "enable debug mode")
 	initialTab = flag.String("tab", "paste", "tab to open initially")
 )
+
+type AppState struct {
+	Tab string `json:"tab"`
+}
+
+func getCacheFilePath() string {
+	cacheDir, _ := os.UserCacheDir()
+	os.MkdirAll(filepath.Join(cacheDir, "vnak"), 0755)
+	return filepath.Join(cacheDir, "vnak", "_state.json")
+}
+
+func saveState(tabName string) error {
+	state := AppState{Tab: tabName}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	cachePath := getCacheFilePath()
+	return os.WriteFile(cachePath, data, 0644)
+}
+
+func loadState() (AppState, error) {
+	cachePath := getCacheFilePath()
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return AppState{Tab: "paste"}, nil
+		}
+		return AppState{}, err
+	}
+
+	var state AppState
+	err = json.Unmarshal(data, &state)
+	if err != nil {
+		return AppState{}, err
+	}
+
+	return state, nil
+}
+
+func getTabName(index int) string {
+	switch index {
+	case tabs.event:
+		return "event"
+	case tabs.req:
+		return "req"
+	case tabs.paste:
+		return "paste"
+	case tabs.serve:
+		return "serve"
+	case tabs.bunker:
+		return "bunker"
+	case tabs.build:
+		return "build"
+	default:
+		return "paste"
+	}
+}
 
 func main() {
 	flag.Parse()
@@ -173,6 +234,8 @@ func main() {
 
 	tabWidget = qt.NewQTabWidget(centralWidget)
 	tabWidget.OnCurrentChanged(func(index int) {
+		tabName := getTabName(index)
+		go saveState(tabName)
 		maybeSetStatusOnTab(index)
 	})
 
@@ -201,21 +264,44 @@ func main() {
 	tabWidget.AddTab(buildTab, "build")
 	tabs.build = 5
 
-	switch *initialTab {
-	case "event":
-		tabWidget.SetCurrentIndex(tabs.event)
-	case "req":
-		tabWidget.SetCurrentIndex(tabs.req)
-	case "paste":
-		tabWidget.SetCurrentIndex(tabs.paste)
-	case "serve":
-		tabWidget.SetCurrentIndex(tabs.serve)
-	case "bunker":
-		tabWidget.SetCurrentIndex(tabs.bunker)
-	case "build":
-		tabWidget.SetCurrentIndex(tabs.build)
-	default:
-		tabWidget.SetCurrentIndex(0)
+	// Load saved state or use initial tab
+	savedState, err := loadState()
+	if err == nil && savedState.Tab != "" {
+		// Use saved tab
+		switch savedState.Tab {
+		case "event":
+			tabWidget.SetCurrentIndex(tabs.event)
+		case "req":
+			tabWidget.SetCurrentIndex(tabs.req)
+		case "paste":
+			tabWidget.SetCurrentIndex(tabs.paste)
+		case "serve":
+			tabWidget.SetCurrentIndex(tabs.serve)
+		case "bunker":
+			tabWidget.SetCurrentIndex(tabs.bunker)
+		case "build":
+			tabWidget.SetCurrentIndex(tabs.build)
+		default:
+			tabWidget.SetCurrentIndex(tabs.paste)
+		}
+	} else {
+		// Use initial tab flag
+		switch *initialTab {
+		case "event":
+			tabWidget.SetCurrentIndex(tabs.event)
+		case "req":
+			tabWidget.SetCurrentIndex(tabs.req)
+		case "paste":
+			tabWidget.SetCurrentIndex(tabs.paste)
+		case "serve":
+			tabWidget.SetCurrentIndex(tabs.serve)
+		case "bunker":
+			tabWidget.SetCurrentIndex(tabs.bunker)
+		case "build":
+			tabWidget.SetCurrentIndex(tabs.build)
+		default:
+			tabWidget.SetCurrentIndex(0)
+		}
 	}
 
 	mainLayout.AddWidget(tabWidget.QWidget)
