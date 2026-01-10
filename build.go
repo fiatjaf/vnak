@@ -52,11 +52,14 @@ type tagSection struct {
 	isRequired bool
 
 	sectionBox *qt.QHBoxLayout
-	label      *qt.QLabel
-	rowsBox    *qt.QVBoxLayout
-	rows       []*qt.QHBoxLayout
-	edits      [][]*qt.QLineEdit
-	bool       *qt.QCheckBox
+
+	tagName string
+	label   *qt.QLabel
+
+	rowsBox *qt.QVBoxLayout
+	rows    []*qt.QHBoxLayout
+	edits   [][]*qt.QLineEdit
+	bool    *qt.QCheckBox
 }
 
 var build = &buildVars{}
@@ -140,10 +143,7 @@ func setupBuildTab() *qt.QWidget {
 		missing := []string{}
 		for _, ts := range build.tagSections {
 			if ts.isRequired {
-				tagName := strings.TrimSuffix(
-					strings.SplitN(ts.label.Text(), " ", 2)[0],
-					":",
-				)
+				tagName := ts.tagName
 
 				hasValidTag := false
 				if ts.isBoolean {
@@ -291,6 +291,9 @@ func (b *buildVars) addTag(tagSpec *schema.TagSpec, required bool, isMultiple bo
 
 	// label for the tag
 	labelText := tagSpec.Name
+	if tagSpec.Name == "-" {
+		labelText = "protected"
+	}
 	if required {
 		labelText += " (required)"
 	}
@@ -388,7 +391,8 @@ func (b *buildVars) addTagRow(ts *tagSection, tagSpec *schema.TagSpec, rowIdx in
 	ts.edits = append(ts.edits, make([]*qt.QLineEdit, 0, 3))
 
 	if ts.isBoolean {
-		// TODO: in this case only add one field: a checkbox, save it to ts.bool
+		ts.bool = qt.NewQCheckBox2()
+		hbox.AddWidget(ts.bool.QWidget)
 	} else {
 		itemIdx := 0
 		for curr := tagSpec.Next; curr != nil; curr = curr.Next {
@@ -607,9 +611,6 @@ func (b *buildVars) clearForm() {
 		ts.sectionBox.DeleteLater()
 	}
 	b.tagSections = b.tagSections[:0]
-
-	// but keep the content just in case
-	// b.contentEdit.SetPlainText("")
 }
 
 func configureInputForType(edit *qt.QLineEdit, spec *schema.ContentSpec) {
