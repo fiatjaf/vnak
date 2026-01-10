@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -37,8 +38,12 @@ type reqVars struct {
 
 	filter nostr.Filter
 
-	outputEdit  *qt.QTextEdit
-	resultsList *qt.QListWidget
+	outputEdit   *qt.QTextEdit
+	resultsList  *qt.QListWidget
+	sendButton   *qt.QPushButton
+	stopButton   *qt.QPushButton
+	clearButton  *qt.QPushButton
+	exportButton *qt.QPushButton
 
 	subCancel context.CancelCauseFunc
 }
@@ -75,6 +80,16 @@ func (req *reqVars) addRelayEdit() {
 				req.relaysEdits = req.relaysEdits[0 : n-1]
 			}
 		}
+
+		// update sendButton state
+		hasRelays := false
+		for _, edit := range req.relaysEdits {
+			if strings.TrimSpace(edit.Text()) != "" {
+				hasRelays = true
+				break
+			}
+		}
+		req.sendButton.SetEnabled(hasRelays)
 	})
 	edit.OnReturnPressed(func() {
 		req.subscribe()
@@ -206,13 +221,59 @@ func setupReqTab() *qt.QWidget {
 	req.outputEdit.SetMaximumHeight(100)
 	outputHBox.AddWidget(req.outputEdit.QWidget)
 
-	// TODO: make sendButton be disabled if while we have no relays
-	sendButton := qt.NewQPushButton5("send request", req.tab)
-	sendButton.OnClicked(req.subscribe)
+	req.sendButton = qt.NewQPushButton5("send request", req.tab)
+	req.sendButton.OnClicked(req.subscribe)
+	req.sendButton.SetEnabled(false)
 
-	// TODO: add button for stopping the subscription (disabled if no subscription is in course -- check subCancel variable)
-	// TODO: add button for clearing the results box
-	// TODO: add button for exporting the events in the results box as a .jsonl file (open file dialog to let user choose where to save)
+	req.stopButton = qt.NewQPushButton5("stop", req.tab)
+	req.stopButton.OnClicked(req.cancelSubscription)
+	req.stopButton.SetEnabled(false)
+
+	req.clearButton = qt.NewQPushButton5("clear", req.tab)
+	req.clearButton.OnClicked(func() {
+		req.resultsList.Clear()
+	})
+
+	req.exportButton = qt.NewQPushButton5("export", req.tab)
+	req.exportButton.OnClicked(func() {
+		if req.resultsList.Count() == 0 {
+			setStatus(tabs.req, "no results to export")
+			return
+		}
+
+		fileDialog := qt.NewQFileDialog(req.tab)
+		fileDialog.SetWindowTitle("Export Results")
+		fileDialog.SetAcceptMode(qt.QFileDialog__AcceptSave)
+		fileDialog.SetNameFilter("JSONL Files (*.jsonl)")
+		if fileDialog.Exec() == int(qt.QDialog__Accepted) {
+			selectedFiles := fileDialog.SelectedFiles()
+			if len(selectedFiles) > 0 {
+				filePath := selectedFiles[0]
+				go func() {
+					file, err := os.Create(filePath)
+					if err != nil {
+						mainthread.Wait(func() {
+							setStatus(tabs.req, "failed to create file: %v", err)
+						})
+						return
+					}
+					defer file.Close()
+
+					for i := 0; i < req.resultsList.Count(); i++ {
+						item := req.resultsList.Item(i)
+						if item != nil {
+							line := item.Text() + "\n"
+							file.WriteString(line)
+						}
+					}
+
+					mainthread.Wait(func() {
+						setStatus(tabs.req, "exported %d events to %s", req.resultsList.Count(), filePath)
+					})
+				}()
+			}
+		}
+	})
 
 	// relays
 	relaysHBox := qt.NewQHBoxLayout2()
@@ -230,13 +291,20 @@ func setupReqTab() *qt.QWidget {
 	resultsLabel := qt.NewQLabel2()
 	resultsLabel.SetText("results:")
 	req.resultsList = qt.NewQListWidget(req.tab)
-	// TODO: make resultsList display items in monospace
+
 	resultsVBox.AddWidget(resultsLabel.QWidget)
 	resultsVBox.AddWidget(req.resultsList.QWidget)
 
 	subscribeHBox := qt.NewQHBoxLayout2()
 	layout.AddLayout(subscribeHBox.QLayout)
-	subscribeHBox.AddWidget(sendButton.QWidget)
+	buttonsVBox := qt.NewQVBoxLayout2()
+	subscribeHBox.AddLayout(buttonsVBox.QLayout)
+
+	buttonsVBox.AddWidget(req.sendButton.QWidget)
+	buttonsVBox.AddWidget(req.stopButton.QWidget)
+	buttonsVBox.AddWidget(req.clearButton.QWidget)
+	buttonsVBox.AddWidget(req.exportButton.QWidget)
+
 	subscribeHBox.AddLayout(resultsVBox.QLayout)
 
 	// double-click to show pretty JSON
@@ -385,11 +453,13 @@ func (req *reqVars) cancelSubscription() {
 	if req.subCancel != nil {
 		req.subCancel(manualCancel)
 		req.subCancel = nil
+		req.stopButton.SetEnabled(false)
 	}
 }
 
 func (req *reqVars) subscribe() {
 	req.cancelSubscription()
+	req.stopButton.SetEnabled(true)
 
 	// collect relays
 	relays := []string{}
@@ -443,6 +513,7 @@ func (req *reqVars) subscribe() {
 			req.subCancel = nil
 			mainthread.Wait(func() {
 				setStatus(tabs.req, "subscription closed: %s", reason)
+				req.stopButton.SetEnabled(false)
 			})
 		}()
 	} else {
@@ -466,7 +537,10 @@ func (req *reqVars) subscribe() {
 			})
 		}
 		req.subCancel = nil
-		setStatus(tabs.req, "subscription ended")
+		mainthread.Wait(func() {
+			setStatus(tabs.req, "subscription ended")
+			req.stopButton.SetEnabled(false)
+		})
 	}()
 
 	go func() {
