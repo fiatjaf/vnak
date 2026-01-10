@@ -101,8 +101,8 @@ func setupEventTab() *qt.QWidget {
 	// send button
 	buttonHBox := qt.NewQHBoxLayout2()
 
-	// TODO: make sendButton be disabled if while we have no relays
 	sendButton := qt.NewQPushButton5("publish event", event.tab)
+	sendButton.SetEnabled(false)
 	buttonHBox.AddWidget(sendButton.QWidget)
 	buttonHBox.AddStretch()
 
@@ -114,6 +114,18 @@ func setupEventTab() *qt.QWidget {
 	layout.AddLayout(relaysVBox.QLayout)
 	event.relaysEdits = []*qt.QLineEdit{}
 	event.relaysStatusLabels = []*qt.QLabel{}
+	var updateSendButton func()
+	updateSendButton = func() {
+		hasRelays := false
+		for _, edit := range event.relaysEdits {
+			if strings.TrimSpace(edit.Text()) != "" {
+				hasRelays = true
+				break
+			}
+		}
+		sendButton.SetEnabled(hasRelays)
+	}
+
 	var addRelayEdit func()
 	addRelayEdit = func() {
 		hbox := qt.NewQHBoxLayout2()
@@ -144,6 +156,7 @@ func setupEventTab() *qt.QWidget {
 					event.relaysStatusLabels = event.relaysStatusLabels[0 : n-1]
 				}
 			}
+			updateSendButton()
 		})
 		edit.OnReturnPressed(func() {
 			sendButton.Click()
@@ -182,14 +195,20 @@ func setupEventTab() *qt.QWidget {
 		go func() {
 			for result := range results {
 				mainthread.Wait(func() {
-					for i, relay := range relays {
-						if result.Relay.URL == relay {
-							if result.Error != nil {
-								event.relaysStatusLabels[i].SetText(strings.TrimPrefix(result.Error.Error(), "msg: "))
-							} else {
-								event.relaysStatusLabels[i].SetText("ok")
+					if result.Relay == nil && result.RelayURL == "" {
+						if result.Error != nil {
+							statusLabel.SetText("publish error: " + result.Error.Error())
+						}
+					} else {
+						for i, relay := range relays {
+							if result.RelayURL == relay {
+								if result.Error != nil {
+									event.relaysStatusLabels[i].SetText(strings.TrimPrefix(result.Error.Error(), "msg: "))
+								} else {
+									event.relaysStatusLabels[i].SetText("ok")
+								}
+								break
 							}
-							break
 						}
 					}
 				})
