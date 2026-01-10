@@ -25,6 +25,7 @@ type eventVars struct {
 	relaysEdits        []*qt.QLineEdit
 	relaysStatusLabels []*qt.QLabel
 	currentEvent       *nostr.Event
+	sendButton         *qt.QPushButton
 }
 
 func setupEventTab() *qt.QWidget {
@@ -101,9 +102,9 @@ func setupEventTab() *qt.QWidget {
 	// send button
 	buttonHBox := qt.NewQHBoxLayout2()
 
-	sendButton := qt.NewQPushButton5("publish event", event.tab)
-	sendButton.SetEnabled(false)
-	buttonHBox.AddWidget(sendButton.QWidget)
+	event.sendButton = qt.NewQPushButton5("publish event", event.tab)
+	event.sendButton.SetEnabled(false)
+	buttonHBox.AddWidget(event.sendButton.QWidget)
 	buttonHBox.AddStretch()
 
 	// relays
@@ -114,17 +115,6 @@ func setupEventTab() *qt.QWidget {
 	layout.AddLayout(relaysVBox.QLayout)
 	event.relaysEdits = []*qt.QLineEdit{}
 	event.relaysStatusLabels = []*qt.QLabel{}
-	var updateSendButton func()
-	updateSendButton = func() {
-		hasRelays := false
-		for _, edit := range event.relaysEdits {
-			if strings.TrimSpace(edit.Text()) != "" {
-				hasRelays = true
-				break
-			}
-		}
-		sendButton.SetEnabled(hasRelays)
-	}
 
 	var addRelayEdit func()
 	addRelayEdit = func() {
@@ -156,17 +146,18 @@ func setupEventTab() *qt.QWidget {
 					event.relaysStatusLabels = event.relaysStatusLabels[0 : n-1]
 				}
 			}
-			updateSendButton()
+
+			event.updateSendButtonState()
 		})
 		edit.OnReturnPressed(func() {
-			sendButton.Click()
+			event.sendButton.Click()
 		})
 	}
 	addRelayEdit()
 
 	layout.AddLayout(buttonHBox.QLayout)
 
-	sendButton.OnClicked(func() {
+	event.sendButton.OnClicked(func() {
 		if event.currentEvent == nil {
 			setStatus(tabs.event, "no event to publish")
 			return
@@ -217,6 +208,17 @@ func setupEventTab() *qt.QWidget {
 	})
 
 	return event.tab
+}
+
+func (event *eventVars) updateSendButtonState() {
+	hasRelays := false
+	for _, edit := range event.relaysEdits {
+		if strings.TrimSpace(edit.Text()) != "" {
+			hasRelays = true
+			break
+		}
+	}
+	event.sendButton.SetEnabled(hasRelays && event.currentEvent.Sig != [64]byte{})
 }
 
 func (event *eventVars) addTagRow(tag nostr.Tag) {
@@ -313,17 +315,11 @@ func (event *eventVars) updateEvent() {
 		Tags:      tags,
 	}
 
-	finalize := func() {
-		event.currentEvent = &result
-		jsonBytes, _ := json.MarshalIndent(result, "", "  ")
-		event.outputEdit.SetPlainText(string(jsonBytes))
-	}
-
 	if currentKeyer != nil {
 		signAndFinalize := func() {
 			if currentKeyer != nil {
 				if err := currentKeyer.SignEvent(ctx, &result); err == nil {
-					finalize()
+					event.finalize(result)
 				} else {
 					setStatus(tabs.event, "failed to sign: "+err.Error())
 				}
@@ -344,7 +340,14 @@ func (event *eventVars) updateEvent() {
 		}
 	}
 
-	finalize()
+	event.finalize(result)
+}
+
+func (event *eventVars) finalize(result nostr.Event) {
+	event.currentEvent = &result
+	jsonBytes, _ := json.MarshalIndent(result, "", "  ")
+	event.outputEdit.SetPlainText(string(jsonBytes))
+	event.updateSendButtonState()
 }
 
 func (event *eventVars) populate(evt nostr.Event) {
@@ -374,5 +377,9 @@ func (event *eventVars) populate(evt nostr.Event) {
 		event.addTagRow(tag)
 	}
 
-	event.updateEvent()
+	if evt.Sig != [64]byte{} {
+		event.finalize(evt)
+	} else {
+		event.updateEvent()
+	}
 }
