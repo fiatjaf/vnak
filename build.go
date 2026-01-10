@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"fiatjaf.com/nostr"
@@ -226,6 +231,72 @@ func (b *buildVars) addTag(tagSpec *schema.TagSpec, required bool, isMultiple bo
 	}
 }
 
+var (
+	gitURLRegex = regexp.MustCompile(`^(git@[\w.-]+:[\w./-]+(\.git)?|https?://[\w.-]+/[\w./-]+(\.git)?)$`)
+	addrRegex   = regexp.MustCompile(`^\d+:[0-9a-fA-F]{64}:.+$`)
+	dateRegex   = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
+
+func validateTagInput(text string, inputType string, either []string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return true // empty is always valid (required check is separate)
+	}
+
+	switch inputType {
+	case "free":
+		return true
+
+	case "timestamp":
+		n, err := strconv.ParseInt(text, 10, 64)
+		return err == nil && n >= 0
+
+	case "constrained":
+		return slices.Contains(either, text)
+
+	case "hex":
+		_, err := hex.DecodeString(text)
+		return err == nil
+
+	case "url":
+		u, err := url.Parse(text)
+		return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+
+	case "giturl":
+		return gitURLRegex.MatchString(text)
+
+	case "relay":
+		u, err := url.Parse(text)
+		return err == nil && (u.Scheme == "ws" || u.Scheme == "wss") && u.Host != ""
+
+	case "pubkey":
+		_, err := nostr.PubKeyFromHex(text)
+		return err == nil
+
+	case "event":
+		_, err := nostr.IDFromHex(text)
+		return err == nil
+
+	case "addr":
+		return addrRegex.MatchString(text)
+
+	case "date":
+		return dateRegex.MatchString(text)
+
+	case "json":
+		var v any
+		err := json.Unmarshal([]byte(text), &v)
+		return err == nil
+
+	case "kind":
+		n, err := strconv.ParseUint(text, 10, 16)
+		return err == nil && n <= 65535
+
+	default:
+		return true
+	}
+}
+
 func (b *buildVars) addTagRow(i int, ts *tagSection, tagSpec *schema.TagSpec) {
 	hbox := qt.NewQHBoxLayout2()
 	ts.rowsBox.AddLayout(hbox.QLayout)
@@ -244,7 +315,17 @@ func (b *buildVars) addTagRow(i int, ts *tagSection, tagSpec *schema.TagSpec) {
 		hbox.AddWidget(edit.QWidget)
 		ts.edits[i] = append(ts.edits[i], edit)
 
+		inputType := curr.Type
+		eitherValues := curr.Either
+
 		edit.OnTextChanged(func(text string) {
+			// validation
+			if validateTagInput(text, inputType, eitherValues) {
+				edit.SetStyleSheet("")
+			} else {
+				edit.SetStyleSheet("border: 1px solid red;")
+			}
+
 			if !ts.isMultiple {
 				return
 			}
