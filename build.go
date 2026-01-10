@@ -30,7 +30,11 @@ type buildVars struct {
 	formLayout *qt.QVBoxLayout
 	formWidget *qt.QWidget
 
-	tagSections []*tagSection
+	tagSections  []*tagSection
+	extraButton  *qt.QPushButton
+	extraWidget  *qt.QWidget
+	extraLayout  *qt.QVBoxLayout
+	extraVisible bool
 
 	contentEdit  *qt.QTextEdit
 	contentLabel *qt.QLabel
@@ -51,10 +55,11 @@ type tagSection struct {
 	isBoolean  bool
 	isRequired bool
 
+	parent     *qt.QLayout
 	sectionBox *qt.QHBoxLayout
 
-	tagName string
-	label   *qt.QLabel
+	spec  *schema.TagSpec
+	label *qt.QLabel
 
 	rowsBox *qt.QVBoxLayout
 	rows    []*qt.QHBoxLayout
@@ -118,6 +123,30 @@ func setupBuildTab() *qt.QWidget {
 	build.formWidget.SetLayout(build.formLayout.QLayout)
 	layout.AddWidget(build.formWidget)
 
+	// collapsible extra fields section
+	extraLabelText := "extra optional fields"
+	build.extraButton = qt.NewQPushButton5("▶ "+extraLabelText, build.tab)
+	build.extraButton.SetFlat(true)
+	build.extraButton.SetHidden(true)
+	layout.AddWidget(build.extraButton.QWidget)
+
+	build.extraWidget = qt.NewQWidget(build.tab)
+	build.extraLayout = qt.NewQVBoxLayout2()
+	build.extraWidget.SetLayout(build.extraLayout.QLayout)
+	build.extraWidget.SetVisible(false)
+	build.extraVisible = false
+	layout.AddWidget(build.extraWidget)
+
+	build.extraButton.OnClicked(func() {
+		build.extraVisible = !build.extraVisible
+		build.extraWidget.SetVisible(build.extraVisible)
+		if build.extraVisible {
+			build.extraButton.SetText("▼" + extraLabelText)
+		} else {
+			build.extraButton.SetText("▶" + extraLabelText)
+		}
+	})
+
 	// content input
 	build.contentLabel = qt.NewQLabel2()
 	build.contentLabel.SetText("content:")
@@ -143,7 +172,7 @@ func setupBuildTab() *qt.QWidget {
 		missing := []string{}
 		for _, ts := range build.tagSections {
 			if ts.isRequired {
-				tagName := ts.tagName
+				tagName := ts.spec.Name
 
 				hasValidTag := false
 				if ts.isBoolean {
@@ -231,6 +260,8 @@ func setupBuildTab() *qt.QWidget {
 
 			// handle item selection
 			build.kindsList.OnItemClicked(func(li *qt.QListWidgetItem) {
+				build.extraButton.SetHidden(false)
+
 				row := build.kindsList.Row(li)
 				if row >= 0 && row < len(build.items) {
 					kindItem := build.items[row]
@@ -262,6 +293,38 @@ func setupBuildTab() *qt.QWidget {
 						build.addTag(&tagSpec, slices.Contains(item.Required, tagSpec.Name), isMultiple)
 					}
 
+					// all events have the option to be protected
+					build.addTagToParent(&schema.TagSpec{
+						Name: "-",
+					}, false, false, build.extraLayout)
+
+					// and nip29nabble
+					build.addTagToParent(&schema.TagSpec{
+						Name: "h",
+						Next: &schema.ContentSpec{
+							Type:     "free",
+							Required: true,
+						},
+					}, false, false, build.extraLayout)
+
+					// and expirable
+					build.addTagToParent(&schema.TagSpec{
+						Name: "expiration",
+						Next: &schema.ContentSpec{
+							Type:     "timestamp",
+							Required: true,
+						},
+					}, false, false, build.extraLayout)
+
+					// and taggable
+					build.addTagToParent(&schema.TagSpec{
+						Name: "t",
+						Next: &schema.ContentSpec{
+							Type:     "lowercase",
+							Required: true,
+						},
+					}, false, true, build.extraLayout)
+
 					// show content input if the kind has content
 					hasContent := item.Content.Type != "empty"
 					build.contentLabel.SetVisible(hasContent)
@@ -280,14 +343,21 @@ func setupBuildTab() *qt.QWidget {
 }
 
 func (b *buildVars) addTag(tagSpec *schema.TagSpec, required bool, isMultiple bool) {
+	b.addTagToParent(tagSpec, required, isMultiple, b.formLayout)
+}
+
+func (b *buildVars) addTagToParent(tagSpec *schema.TagSpec, required bool, isMultiple bool, parent *qt.QVBoxLayout) {
 	ts := &tagSection{
 		isMultiple: isMultiple,
 		isBoolean:  tagSpec.Next == nil,
 		isRequired: required,
+
+		spec:   tagSpec,
+		parent: parent.QLayout,
 	}
 
 	ts.sectionBox = qt.NewQHBoxLayout2()
-	b.formLayout.AddLayout(ts.sectionBox.QLayout)
+	parent.AddLayout(ts.sectionBox.QLayout)
 
 	// label for the tag
 	labelText := tagSpec.Name
@@ -315,6 +385,7 @@ func (b *buildVars) addTag(tagSpec *schema.TagSpec, required bool, isMultiple bo
 		// boolean tag - add checkbox
 		ts.bool = qt.NewQCheckBox2()
 		ts.sectionBox.AddWidget(ts.bool.QWidget)
+		ts.sectionBox.AddStretch()
 	}
 }
 
@@ -337,6 +408,15 @@ func validateTagInput(text string, spec *schema.ContentSpec) bool {
 	case "timestamp":
 		n, err := strconv.ParseInt(text, 10, 64)
 		return err == nil && n >= 0
+
+	case "lowercase":
+		return strings.ToLower(text) == text
+
+	case "imeta":
+		return len(strings.SplitN(text, " ", 2)) == 2
+
+	case "empty":
+		return text == ""
 
 	case "constrained":
 		return slices.Contains(spec.Either, text)
@@ -393,6 +473,7 @@ func (b *buildVars) addTagRow(ts *tagSection, tagSpec *schema.TagSpec, rowIdx in
 	if ts.isBoolean {
 		ts.bool = qt.NewQCheckBox2()
 		hbox.AddWidget(ts.bool.QWidget)
+		hbox.AddStretch()
 	} else {
 		itemIdx := 0
 		for curr := tagSpec.Next; curr != nil; curr = curr.Next {
@@ -493,21 +574,14 @@ func (b *buildVars) buildEvent() nostr.Event {
 
 	// of all the hboxes
 	for _, ts := range b.tagSections {
-		// if the second element of an hbox is a vbox that means it is a top-level hbox
-		// get tag name from the hbox
-		tagName := strings.TrimSuffix(
-			strings.SplitN(ts.label.Text(), " ", 2)[0],
-			":",
-		)
-
 		if ts.isBoolean {
 			if ts.bool.CheckState() == qt.Checked {
-				base.Tags = append(base.Tags, nostr.Tag{tagName})
+				base.Tags = append(base.Tags, nostr.Tag{ts.spec.Name})
 			}
 		} else {
 			for e, edits := range ts.edits {
 				tag := make(nostr.Tag, 1, 4)
-				tag[0] = tagName
+				tag[0] = ts.spec.Name
 
 				hasValue := false
 				for _, edit := range edits {
@@ -550,14 +624,14 @@ func (b *buildVars) validateTags() []string {
 				}
 
 				// find the tag spec for this tag
-				for _, tagSpec := range b.selected.Tags {
+				for _, ts := range b.tagSections {
 					// try only tags with matching names, of course
-					if tagSpec.Name != tagName {
+					if ts.spec.Name != tagName {
 						continue
 					}
 
 					// navigate to the correct position in the spec
-					curr := tagSpec.Next
+					curr := ts.spec.Next
 					for range itemIdx {
 						if curr.Variadic {
 							// if we reach a variadic that's the end of it, all edits further on will be of this type
@@ -607,6 +681,8 @@ func (b *buildVars) clearForm() {
 			ts.rowsBox.DeleteLater()
 		}
 
+		// remove from appropriate parent
+		ts.parent.RemoveItem(ts.sectionBox.QLayoutItem)
 		b.formLayout.RemoveItem(ts.sectionBox.QLayoutItem)
 		ts.sectionBox.DeleteLater()
 	}
